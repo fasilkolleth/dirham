@@ -21,7 +21,13 @@ export function useNotifications() {
 
     if (!pending.length) return
 
-    // Small delay so app loads fully before showing notifications
+    // Mark as notified immediately so closing the app before the timer fires
+    // doesn't cause them to re-appear on the next open.
+    localStorage.setItem(storageKey, JSON.stringify([
+      ...alreadyNotified,
+      ...pending.map(a => a.id),
+    ]))
+
     const timer = setTimeout(() => {
       pending.forEach(alert => {
         try {
@@ -33,11 +39,6 @@ export function useNotifications() {
           })
         } catch {}
       })
-
-      localStorage.setItem(storageKey, JSON.stringify([
-        ...alreadyNotified,
-        ...pending.map(a => a.id),
-      ]))
     }, 2000)
 
     return () => clearTimeout(timer)
