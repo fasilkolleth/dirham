@@ -29,16 +29,21 @@ export function useNotifications() {
     ]))
 
     const timer = setTimeout(() => {
-      pending.forEach(alert => {
-        try {
-          new Notification(alert.title, {
-            body: alert.description,
-            icon: '/icons/icon-192.png',
-            badge: '/icons/icon-192.png',
-            tag: alert.id,
-          })
-        } catch {}
-      })
+      try {
+        const title = pending.length === 1
+          ? pending[0].title
+          : `${pending.length} Alerts Require Attention`
+        const body = pending.length === 1
+          ? pending[0].description
+          : pending.slice(0, 3).map(a => `• ${a.title}`).join('\n') +
+            (pending.length > 3 ? `\n+ ${pending.length - 3} more` : '')
+        new Notification(title, {
+          body,
+          icon: '/icons/icon-192.png',
+          badge: '/icons/icon-192.png',
+          tag: 'daily-alerts',
+        })
+      } catch {}
     }, 2000)
 
     return () => clearTimeout(timer)
