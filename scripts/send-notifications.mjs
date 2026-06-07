@@ -16,7 +16,7 @@ async function main() {
   // 1. Get saved FCM token
   const pushDoc = await db.doc('config/push').get()
   if (!pushDoc.exists) return console.log('No FCM token saved — skipping.')
-  const { token } = pushDoc.data()
+  const { token, notifiedAlerts = {} } = pushDoc.data()
   if (!token) return console.log('FCM token is empty — skipping.')
 
   // 2. Get user settings (alert thresholds)
@@ -51,21 +51,30 @@ async function main() {
   const urgent = alerts.filter(a => a.severity === 'high' || a.severity === 'medium')
 
   if (!urgent.length) {
-    console.log('No urgent alerts today — no notification sent.')
+    console.log('No urgent alerts — no notification sent.')
     return
   }
 
-  // 6. Build notification text
-  const title = urgent.length === 1
-    ? urgent[0].title
-    : `${urgent.length} Alerts Require Attention`
+  // 6. Filter to only new alerts or ones that escalated in severity.
+  //    Key = alertId_severity so re-notifying on escalation (medium→high) works.
+  const pending = urgent.filter(a => notifiedAlerts[`${a.id}_${a.severity}`] !== true)
 
-  const body = urgent.length === 1
-    ? urgent[0].description
-    : urgent.slice(0, 3).map(a => `• ${a.title}`).join('\n') +
-      (urgent.length > 3 ? `\n+ ${urgent.length - 3} more` : '')
+  if (!pending.length) {
+    console.log('All alerts already notified — no new notification sent.')
+    return
+  }
 
-  // 7. Send FCM push as data-only so Firebase doesn't auto-show a notification.
+  // 7. Build notification text
+  const title = pending.length === 1
+    ? pending[0].title
+    : `${pending.length} New Alerts Require Attention`
+
+  const body = pending.length === 1
+    ? pending[0].description
+    : pending.slice(0, 3).map(a => `• ${a.title}`).join('\n') +
+      (pending.length > 3 ? `\n+ ${pending.length - 3} more` : '')
+
+  // 8. Send FCM push as data-only so Firebase doesn't auto-show a notification.
   //    The service worker's onBackgroundMessage handler shows exactly one notification.
   await getMessaging().send({
     token,
@@ -76,10 +85,24 @@ async function main() {
     },
   })
 
-  // Record today's date so the app skips its foreground notification
-  await db.doc('config/push').set({ lastNotifiedDate: new Date().toDateString() }, { merge: true })
+  // 9. Mark newly notified alerts + record date + prune resolved alerts
+  const activeIds = new Set(urgent.map(a => `${a.id}_${a.severity}`))
+  const updatedNotified = {}
+  // Keep only alerts still active (auto-clears resolved ones)
+  for (const key of Object.keys(notifiedAlerts)) {
+    if (activeIds.has(key)) updatedNotified[key] = true
+  }
+  // Add newly notified
+  for (const a of pending) {
+    updatedNotified[`${a.id}_${a.severity}`] = true
+  }
 
-  console.log(`Push sent: "${title}" (${urgent.length} alert${urgent.length !== 1 ? 's' : ''})`)
+  await db.doc('config/push').set({
+    notifiedAlerts: updatedNotified,
+    lastNotifiedDate: new Date().toDateString(),
+  }, { merge: true })
+
+  console.log(`Push sent: "${title}" (${pending.length} new alert${pending.length !== 1 ? 's' : ''})`)
 }
 
 main().catch(err => { console.error(err); process.exit(1) })
