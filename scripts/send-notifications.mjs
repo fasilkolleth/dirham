@@ -80,6 +80,9 @@ async function main() {
     },
   })
 
+  // Record today's date so the app skips its foreground notification
+  await db.doc('config/push').set({ lastNotifiedDate: new Date().toDateString() }, { merge: true })
+
   console.log(`Push sent: "${title}" (${urgent.length} alert${urgent.length !== 1 ? 's' : ''})`)
 }
 
