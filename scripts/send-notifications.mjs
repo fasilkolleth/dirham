@@ -65,18 +65,14 @@ async function main() {
     : urgent.slice(0, 3).map(a => `• ${a.title}`).join('\n') +
       (urgent.length > 3 ? `\n+ ${urgent.length - 3} more` : '')
 
-  // 7. Send FCM push — iOS routes this through APNs automatically
+  // 7. Send FCM push as data-only so Firebase doesn't auto-show a notification.
+  //    The service worker's onBackgroundMessage handler shows exactly one notification.
   await getMessaging().send({
     token,
-    notification: { title, body },
+    data: { title, body },
     webpush: {
-      notification: {
-        icon: '/icons/icon-192.png',
-        badge: '/icons/icon-192.png',
-      },
-      fcmOptions: {
-        link: '/',
-      },
+      headers: { Urgency: 'high' },
+      fcmOptions: { link: '/' },
     },
   })
 

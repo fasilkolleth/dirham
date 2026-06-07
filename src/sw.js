@@ -45,11 +45,10 @@ const firebaseApp = initializeApp({
 
 const messaging = getMessaging(firebaseApp)
 
-onBackgroundMessage(messaging, ({ notification = {} }) => {
-  const { title = 'Dirham', body = '', icon } = notification
-  self.registration.showNotification(title, {
-    body,
-    icon: icon || '/icons/icon-192.png',
+onBackgroundMessage(messaging, ({ data = {} }) => {
+  self.registration.showNotification(data.title || 'Dirham', {
+    body: data.body || '',
+    icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
   })
 })
