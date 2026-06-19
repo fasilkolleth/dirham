@@ -8,6 +8,7 @@ import { cn } from '@/utils/cn'
 const TYPE_ICON = { emi: CalendarClock, emi_due: CalendarClock, cheque: Receipt, contract: FileText, lending: Users }
 // Where each alert lives, so a tap jumps straight to the right page.
 const TYPE_ROUTE = { emi: '/trackers', emi_due: '/trackers', lending: '/trackers', cheque: '/properties', contract: '/properties' }
+const TYPE_TAB   = { emi: 'emi', emi_due: 'emi', lending: 'lending' }
 
 // Positive events (rent coming in, a loan ending, a repayment owed to you) read
 // green; everything else is coloured by urgency (red → amber → blue).
@@ -65,11 +66,12 @@ export function DueSoon({ onViewAll, className }) {
             const Icon = TYPE_ICON[alert.type] || Clock
             const chip = alert.tone === 'positive' ? POSITIVE_CHIP : (SEVERITY_CHIP[alert.severity] || SEVERITY_CHIP.low)
             const route = TYPE_ROUTE[alert.type]
+            const tab   = TYPE_TAB[alert.type]
             return (
               <button
                 key={alert.id}
                 type="button"
-                onClick={() => route && navigate(route)}
+                onClick={() => route && navigate(route, { state: tab ? { tab } : undefined })}
                 disabled={!route}
                 className="group w-full text-left px-4 md:px-6 py-3 flex items-center gap-3 transition-colors enabled:hover:bg-[var(--surface-2)] disabled:cursor-default"
               >
