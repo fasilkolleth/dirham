@@ -4,6 +4,15 @@ import { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '@
 import { toDateInput } from '@/utils/dateHelpers'
 import toast from 'react-hot-toast'
 
+const CALENDAR_SETTING_DEFAULTS = {
+  emiCalendar:            'early_and_due',
+  emiDueCalendar:         'due_date',
+  chequeCalendar:         'early_and_due',
+  ownedContractCalendar:  'early_and_due',
+  rentedContractCalendar: 'early_and_due',
+  lendingCalendar:        'due_date',
+}
+
 // Days to use for the early reminder based on the category type
 function getEarlyDays(type, settings) {
   const map = {
@@ -31,7 +40,7 @@ export function useCalendarSync() {
   const sync = async ({ type, title, description = '', dueDate, existingEventId = null }) => {
     if (!calendarToken) return undefined
 
-    const calSetting = settings[`${type}Calendar`]
+    const calSetting = settings[`${type}Calendar`] ?? CALENDAR_SETTING_DEFAULTS[`${type}Calendar`] ?? 'off'
 
     // Setting is off — delete existing event if any
     if (!calSetting || calSetting === 'off') {

@@ -15,6 +15,13 @@ export const DEFAULT_SETTINGS = {
   rentedContractWarningDays: 60,
   lendingWarningDays: 7,
   dateFormat: 'DD MMM YYYY',
+  // Google Calendar reminder defaults
+  emiCalendar:            'early_and_due',
+  emiDueCalendar:         'due_date',
+  chequeCalendar:         'early_and_due',
+  ownedContractCalendar:  'early_and_due',
+  rentedContractCalendar: 'early_and_due',
+  lendingCalendar:        'due_date',
 }
 
 export function AppProvider({ children }) {
