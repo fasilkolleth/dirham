@@ -62,6 +62,7 @@ export default function SettingsPage() {
     ownedContractCalendar:  settings.ownedContractCalendar  ?? CALENDAR_DEFAULTS.ownedContractCalendar,
     rentedContractCalendar: settings.rentedContractCalendar ?? CALENDAR_DEFAULTS.rentedContractCalendar,
     lendingCalendar:        settings.lendingCalendar        ?? CALENDAR_DEFAULTS.lendingCalendar,
+    calendarReminderTime:   settings.calendarReminderTime   ?? '09:00',
   })
   const [settingsDirty, setSettingsDirty] = useState(false)
 
@@ -81,6 +82,7 @@ export default function SettingsPage() {
       ownedContractCalendar:  settings.ownedContractCalendar  ?? CALENDAR_DEFAULTS.ownedContractCalendar,
       rentedContractCalendar: settings.rentedContractCalendar ?? CALENDAR_DEFAULTS.rentedContractCalendar,
       lendingCalendar:        settings.lendingCalendar        ?? CALENDAR_DEFAULTS.lendingCalendar,
+      calendarReminderTime:   settings.calendarReminderTime   ?? '09:00',
     })
     setSettingsDirty(false)
   }, [settings])
@@ -284,6 +286,21 @@ export default function SettingsPage() {
               </div>
               <Card>
                 <CardContent className="pt-2 pb-5">
+
+                  {/* Reminder time — applies to all calendar events, UAE time */}
+                  <div className="flex items-center justify-between py-3 mb-1 border-b border-[var(--border)]">
+                    <div>
+                      <span className="text-sm font-medium text-[var(--text-1)]">Reminder time</span>
+                      <p className="text-[11px] text-[var(--text-3)] mt-0.5">UAE time · applies to all categories</p>
+                    </div>
+                    <input
+                      type="time"
+                      value={calendarSettings.calendarReminderTime}
+                      onChange={e => { setCalendarSettings(prev => ({ ...prev, calendarReminderTime: e.target.value })); setSettingsDirty(true) }}
+                      className="h-9 rounded-[var(--radius-md)] px-2.5 text-sm font-semibold bg-[var(--surface-2)] text-[var(--text-1)] border border-[var(--border)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)] focus:ring-opacity-15 outline-none transition-all"
+                    />
+                  </div>
+
                   <div className="divide-y divide-[var(--border)]">
                     <AlertCalendarRow
                       label="EMI ending"

@@ -55,12 +55,14 @@ export function useCalendarSync() {
 
     const earlyReminderDays = calSetting === 'early_and_due' ? getEarlyDays(type, settings) : 0
 
+    const reminderTime = settings.calendarReminderTime || '09:00'
+
     try {
       if (existingEventId) {
-        await updateCalendarEvent(calendarToken, existingEventId, { title, description, dueDate: dueDateStr, earlyReminderDays })
+        await updateCalendarEvent(calendarToken, existingEventId, { title, description, dueDate: dueDateStr, earlyReminderDays, reminderTime })
         return existingEventId
       } else {
-        return await createCalendarEvent(calendarToken, { title, description, dueDate: dueDateStr, earlyReminderDays })
+        return await createCalendarEvent(calendarToken, { title, description, dueDate: dueDateStr, earlyReminderDays, reminderTime })
       }
     } catch (err) {
       if (err.message?.includes('401') || err.message?.includes('403')) {

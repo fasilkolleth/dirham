@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS = {
   ownedContractCalendar:  'early_and_due',
   rentedContractCalendar: 'early_and_due',
   lendingCalendar:        'due_date',
+  calendarReminderTime:   '09:00',
 }
 
 export function AppProvider({ children }) {

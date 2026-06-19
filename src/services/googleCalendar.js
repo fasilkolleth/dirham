@@ -1,12 +1,15 @@
 const BASE_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
+const TIME_ZONE = 'Asia/Dubai' // UAE — Gulf Standard Time (UTC+4)
 
-// Timed events at 9 AM give reliable push notifications on iPhone.
+// Timed events give reliable push notifications on iPhone.
 // All-day events with popup reminders are unreliable across calendar clients.
-function buildEventBody(title, description, dueDate, earlyReminderDays) {
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+function buildEventBody(title, description, dueDate, earlyReminderDays, reminderTime = '09:00') {
+  const [endHour, endMin] = reminderTime.split(':').map(Number)
+  const endMinutes = endMin + 30
+  const endTime = `${String(endHour + Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`
 
   const overrides = [
-    { method: 'popup', minutes: 0 }, // at 9 AM on the due date
+    { method: 'popup', minutes: 0 },
   ]
   if (earlyReminderDays > 0) {
     overrides.push({ method: 'popup', minutes: earlyReminderDays * 24 * 60 })
@@ -15,20 +18,20 @@ function buildEventBody(title, description, dueDate, earlyReminderDays) {
   return {
     summary: title,
     description,
-    start: { dateTime: `${dueDate}T09:00:00`, timeZone },
-    end:   { dateTime: `${dueDate}T09:30:00`, timeZone },
+    start: { dateTime: `${dueDate}T${reminderTime}:00`, timeZone: TIME_ZONE },
+    end:   { dateTime: `${dueDate}T${endTime}:00`,      timeZone: TIME_ZONE },
     reminders: { useDefault: false, overrides },
   }
 }
 
-export async function createCalendarEvent(accessToken, { title, description, dueDate, earlyReminderDays = 0 }) {
+export async function createCalendarEvent(accessToken, { title, description, dueDate, earlyReminderDays = 0, reminderTime = '09:00' }) {
   const res = await fetch(BASE_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(buildEventBody(title, description, dueDate, earlyReminderDays)),
+    body: JSON.stringify(buildEventBody(title, description, dueDate, earlyReminderDays, reminderTime)),
   })
 
   if (!res.ok) {
@@ -40,14 +43,14 @@ export async function createCalendarEvent(accessToken, { title, description, due
   return data.id
 }
 
-export async function updateCalendarEvent(accessToken, eventId, { title, description, dueDate, earlyReminderDays = 0 }) {
+export async function updateCalendarEvent(accessToken, eventId, { title, description, dueDate, earlyReminderDays = 0, reminderTime = '09:00' }) {
   const res = await fetch(`${BASE_URL}/${eventId}`, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(buildEventBody(title, description, dueDate, earlyReminderDays)),
+    body: JSON.stringify(buildEventBody(title, description, dueDate, earlyReminderDays, reminderTime)),
   })
 
   if (!res.ok) {
