@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Sun, Moon, LogOut, Plus, Trash2, Pencil, Landmark } from 'lucide-react'
+import { Sun, Moon, LogOut, Plus, Trash2, Pencil, Landmark, CalendarDays, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Header } from '@/components/layout/Header'
 import { Card, CardContent } from '@/components/ui/Card'
@@ -14,15 +14,29 @@ import { useBudget } from '@/hooks/useBudget'
 import { useBankAccounts } from '@/hooks/useBankAccounts'
 import { formatCurrency } from '@/utils/currencyFormatter'
 import { normCurrency, currencyMeta } from '@/utils/currencies'
-import { requestNotificationPermission } from '@/services/fcm'
 import toast from 'react-hot-toast'
 
+const CALENDAR_OPTIONS = [
+  { value: 'off',           label: 'Off' },
+  { value: 'due_date',      label: 'Due date only' },
+  { value: 'early_and_due', label: 'Early + due date' },
+]
+
+const CALENDAR_DEFAULTS = {
+  emiCalendar:            'early_and_due',
+  emiDueCalendar:         'due_date',
+  chequeCalendar:         'early_and_due',
+  ownedContractCalendar:  'early_and_due',
+  rentedContractCalendar: 'early_and_due',
+  lendingCalendar:        'due_date',
+}
+
 export default function SettingsPage() {
-  const { user, logout } = useAuth()
+  const { user, logout, calendarToken, connectGoogleCalendar } = useAuth()
   const { theme, toggleTheme, activeCurrency } = useApp()
   const { settings, saveMutation } = useSettings()
 
-  // Preferred name — the name used in greetings (Google display name may include a prefix)
+  // ── Preferred name ──────────────────────────────────────────────────────────
   const [preferredName, setPreferredName] = useState(settings.preferredName || '')
   useEffect(() => { setPreferredName(settings.preferredName || '') }, [settings.preferredName])
   const nameDirty = preferredName.trim() !== (settings.preferredName || '').trim()
@@ -32,7 +46,7 @@ export default function SettingsPage() {
     toast.success('Name updated')
   }
 
-  // Inline threshold state — syncs from Firestore once settings load
+  // ── Alert thresholds + calendar settings ────────────────────────────────────
   const [thresholds, setThresholds] = useState({
     emiWarningMonths:          settings.emiWarningMonths,
     emiDueWarningDays:         settings.emiDueWarningDays,
@@ -41,9 +55,16 @@ export default function SettingsPage() {
     rentedContractWarningDays: settings.rentedContractWarningDays,
     lendingWarningDays:        settings.lendingWarningDays,
   })
-  const [thresholdsDirty, setThresholdsDirty] = useState(false)
+  const [calendarSettings, setCalendarSettings] = useState({
+    emiCalendar:            settings.emiCalendar            ?? CALENDAR_DEFAULTS.emiCalendar,
+    emiDueCalendar:         settings.emiDueCalendar         ?? CALENDAR_DEFAULTS.emiDueCalendar,
+    chequeCalendar:         settings.chequeCalendar         ?? CALENDAR_DEFAULTS.chequeCalendar,
+    ownedContractCalendar:  settings.ownedContractCalendar  ?? CALENDAR_DEFAULTS.ownedContractCalendar,
+    rentedContractCalendar: settings.rentedContractCalendar ?? CALENDAR_DEFAULTS.rentedContractCalendar,
+    lendingCalendar:        settings.lendingCalendar        ?? CALENDAR_DEFAULTS.lendingCalendar,
+  })
+  const [settingsDirty, setSettingsDirty] = useState(false)
 
-  // Sync thresholds whenever Firestore settings arrive (async load)
   useEffect(() => {
     setThresholds({
       emiWarningMonths:          settings.emiWarningMonths,
@@ -53,42 +74,48 @@ export default function SettingsPage() {
       rentedContractWarningDays: settings.rentedContractWarningDays,
       lendingWarningDays:        settings.lendingWarningDays,
     })
-    setThresholdsDirty(false)
+    setCalendarSettings({
+      emiCalendar:            settings.emiCalendar            ?? CALENDAR_DEFAULTS.emiCalendar,
+      emiDueCalendar:         settings.emiDueCalendar         ?? CALENDAR_DEFAULTS.emiDueCalendar,
+      chequeCalendar:         settings.chequeCalendar         ?? CALENDAR_DEFAULTS.chequeCalendar,
+      ownedContractCalendar:  settings.ownedContractCalendar  ?? CALENDAR_DEFAULTS.ownedContractCalendar,
+      rentedContractCalendar: settings.rentedContractCalendar ?? CALENDAR_DEFAULTS.rentedContractCalendar,
+      lendingCalendar:        settings.lendingCalendar        ?? CALENDAR_DEFAULTS.lendingCalendar,
+    })
+    setSettingsDirty(false)
   }, [settings])
 
   const updateThreshold = (key, value) => {
     setThresholds(prev => ({ ...prev, [key]: value }))
-    setThresholdsDirty(true)
+    setSettingsDirty(true)
+  }
+  const updateCalendar = (key, value) => {
+    setCalendarSettings(prev => ({ ...prev, [key]: value }))
+    setSettingsDirty(true)
   }
 
-  const handleSaveThresholds = async () => {
-    const parsed = {
+  const handleSaveSettings = async () => {
+    await saveMutation.mutateAsync({
       emiWarningMonths:          Math.max(1, Number(thresholds.emiWarningMonths) || 3),
       emiDueWarningDays:         Math.max(1, Number(thresholds.emiDueWarningDays) || 5),
       chequeWarningDays:         Math.max(1, Number(thresholds.chequeWarningDays) || 7),
       ownedContractWarningDays:  Math.max(1, Number(thresholds.ownedContractWarningDays) || 60),
       rentedContractWarningDays: Math.max(1, Number(thresholds.rentedContractWarningDays) || 60),
       lendingWarningDays:        Math.max(1, Number(thresholds.lendingWarningDays) || 7),
-    }
-    await saveMutation.mutateAsync(parsed)
-    setThresholdsDirty(false)
-    toast.success('Alert thresholds saved')
+      ...calendarSettings,
+    })
+    setSettingsDirty(false)
+    toast.success('Settings saved')
   }
 
-  const handleEnableNotifications = async () => {
-    try {
-      const token = await requestNotificationPermission()
-      if (token) toast.success('Notifications enabled!')
-      else toast.info('Notification prompt was dismissed.')
-    } catch (err) {
-      const messages = {
-        not_supported: 'Push notifications are not supported in this browser.',
-        permission_denied: 'Permission denied. Enable notifications in your browser settings and try again.',
-        messaging_unavailable: 'Firebase Messaging is unavailable in this browser.',
-        token_failed: 'Could not register for push notifications. Try reinstalling the app to your Home Screen.',
-      }
-      toast.error(messages[err.message] || 'Could not enable notifications.')
-    }
+  // ── Google Calendar connect ──────────────────────────────────────────────────
+  const [connecting, setConnecting] = useState(false)
+  const handleConnectCalendar = async () => {
+    setConnecting(true)
+    const ok = await connectGoogleCalendar()
+    setConnecting(false)
+    if (ok) toast.success('Google Calendar connected!')
+    else toast.error('Could not connect Google Calendar.')
   }
 
   return (
@@ -98,7 +125,7 @@ export default function SettingsPage() {
       <div className="px-4 md:px-8 py-4 md:py-8 animate-fade-in">
         <div className="grid grid-cols-1 md:grid-cols-2 md:gap-8 gap-6 md:items-start">
 
-          {/* ── LEFT COLUMN — profile, preferences, budget, sign out ── */}
+          {/* ── LEFT COLUMN ── */}
           <div className="space-y-6">
 
             {/* Account */}
@@ -123,7 +150,6 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  {/* Preferred name — used for the dashboard greeting */}
                   <div className="mt-5 pt-5 border-t border-[var(--border)]">
                     <label className="block text-xs font-semibold text-[var(--text-3)] uppercase tracking-wide mb-2">
                       Preferred name
@@ -146,7 +172,7 @@ export default function SettingsPage() {
                       </Button>
                     </div>
                     <p className="text-[11px] text-[var(--text-3)] mt-2 leading-relaxed">
-                      Shown in your dashboard greeting (e.g. “Good evening, {preferredName.trim() || 'Fasil'}”).
+                      Shown in your dashboard greeting (e.g. "Good evening, {preferredName.trim() || 'Fasil'}").
                     </p>
                   </div>
                 </CardContent>
@@ -181,7 +207,7 @@ export default function SettingsPage() {
               </Card>
             </section>
 
-            {/* Budget Template — grouped with profile/data setup */}
+            {/* Budget Template */}
             <section>
               <p className="section-label mb-3 px-1">Budget Template</p>
               <Card>
@@ -193,34 +219,131 @@ export default function SettingsPage() {
 
           </div>
 
-          {/* ── RIGHT COLUMN — notifications & thresholds ───────────── */}
+          {/* ── RIGHT COLUMN ── */}
           <div className="space-y-6">
 
-            {/* Alert Thresholds — always visible inline, no modal */}
+            {/* Google Calendar */}
             <section>
-              <div className="flex items-center justify-between mb-3 px-1">
-                <p className="section-label">Alert Thresholds</p>
-                <p className="text-[11px] text-[var(--text-3)]">How far in advance</p>
-              </div>
+              <p className="section-label mb-3 px-1">Google Calendar</p>
               <Card>
-                <CardContent className="pt-4 pb-5">
-                  <div className="divide-y divide-[var(--border)]">
-                    <ThresholdRow label="EMI ending"               unit="months" value={thresholds.emiWarningMonths}          onChange={v => updateThreshold('emiWarningMonths', v)} />
-                    <ThresholdRow label="EMI payment due"          unit="days"   value={thresholds.emiDueWarningDays}         onChange={v => updateThreshold('emiDueWarningDays', v)} />
-                    <ThresholdRow label="Owned property contract"  unit="days"   value={thresholds.ownedContractWarningDays}  onChange={v => updateThreshold('ownedContractWarningDays', v)} />
-                    <ThresholdRow label="Rented apartment contract" unit="days"  value={thresholds.rentedContractWarningDays} onChange={v => updateThreshold('rentedContractWarningDays', v)} />
-                    <ThresholdRow label="Cheque due"               unit="days"   value={thresholds.chequeWarningDays}         onChange={v => updateThreshold('chequeWarningDays', v)} />
-                    <ThresholdRow label="Lending repayment"        unit="days"   value={thresholds.lendingWarningDays}        onChange={v => updateThreshold('lendingWarningDays', v)} />
+                <CardContent className="pt-4 pb-4">
+                  <div className="flex items-center gap-3">
+                    {/* Icon */}
+                    <div className="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center shrink-0"
+                      style={{ background: calendarToken ? 'var(--success-bg)' : 'var(--surface-2)' }}>
+                      <CalendarDays size={18} style={{ color: calendarToken ? 'var(--success)' : 'var(--text-3)' }} />
+                    </div>
+
+                    {/* Status text */}
+                    <div className="flex-1 min-w-0">
+                      {calendarToken ? (
+                        <>
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle2 size={13} className="text-[var(--success)] shrink-0" />
+                            <span className="text-sm font-semibold text-[var(--text-1)]">Connected</span>
+                          </div>
+                          <p className="text-xs text-[var(--text-3)] truncate mt-0.5">{user?.email}</p>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-1.5">
+                            <AlertCircle size={13} className="text-[var(--warning)] shrink-0" />
+                            <span className="text-sm font-semibold text-[var(--text-1)]">Not connected</span>
+                          </div>
+                          <p className="text-xs text-[var(--text-3)] mt-0.5">Connect to enable calendar reminders</p>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Action button */}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleConnectCalendar}
+                      disabled={connecting}
+                      className="shrink-0"
+                    >
+                      {connecting ? 'Connecting…' : calendarToken ? 'Reconnect' : 'Connect'}
+                    </Button>
                   </div>
 
-                  {/* Save button — visually distinct between saved and dirty states */}
+                  {!calendarToken && (
+                    <p className="text-[11px] text-[var(--text-3)] mt-3 pt-3 border-t border-[var(--border)] leading-relaxed">
+                      Once connected, the app will automatically create calendar events with reminders whenever you add a cheque, EMI, contract or lending record.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* Alerts & Calendar */}
+            <section>
+              <div className="flex items-center justify-between mb-3 px-1">
+                <p className="section-label">Alerts & Calendar</p>
+                <p className="text-[11px] text-[var(--text-3)]">Warning window</p>
+              </div>
+              <Card>
+                <CardContent className="pt-2 pb-5">
+                  <div className="divide-y divide-[var(--border)]">
+                    <AlertCalendarRow
+                      label="EMI ending"
+                      unit="months"
+                      thresholdValue={thresholds.emiWarningMonths}
+                      onThresholdChange={v => updateThreshold('emiWarningMonths', v)}
+                      calendarValue={calendarSettings.emiCalendar}
+                      onCalendarChange={v => updateCalendar('emiCalendar', v)}
+                      calendarConnected={!!calendarToken}
+                    />
+                    <AlertCalendarRow
+                      label="EMI payment due"
+                      unit="days"
+                      thresholdValue={thresholds.emiDueWarningDays}
+                      onThresholdChange={v => updateThreshold('emiDueWarningDays', v)}
+                      calendarValue={calendarSettings.emiDueCalendar}
+                      onCalendarChange={v => updateCalendar('emiDueCalendar', v)}
+                      calendarConnected={!!calendarToken}
+                    />
+                    <AlertCalendarRow
+                      label="Owned property contract"
+                      unit="days"
+                      thresholdValue={thresholds.ownedContractWarningDays}
+                      onThresholdChange={v => updateThreshold('ownedContractWarningDays', v)}
+                      calendarValue={calendarSettings.ownedContractCalendar}
+                      onCalendarChange={v => updateCalendar('ownedContractCalendar', v)}
+                      calendarConnected={!!calendarToken}
+                    />
+                    <AlertCalendarRow
+                      label="Rented apartment contract"
+                      unit="days"
+                      thresholdValue={thresholds.rentedContractWarningDays}
+                      onThresholdChange={v => updateThreshold('rentedContractWarningDays', v)}
+                      calendarValue={calendarSettings.rentedContractCalendar}
+                      onCalendarChange={v => updateCalendar('rentedContractCalendar', v)}
+                      calendarConnected={!!calendarToken}
+                    />
+                    <AlertCalendarRow
+                      label="Cheque due"
+                      unit="days"
+                      thresholdValue={thresholds.chequeWarningDays}
+                      onThresholdChange={v => updateThreshold('chequeWarningDays', v)}
+                      calendarValue={calendarSettings.chequeCalendar}
+                      onCalendarChange={v => updateCalendar('chequeCalendar', v)}
+                      calendarConnected={!!calendarToken}
+                    />
+                    <AlertCalendarRow
+                      label="Lending repayment"
+                      unit="days"
+                      thresholdValue={thresholds.lendingWarningDays}
+                      onThresholdChange={v => updateThreshold('lendingWarningDays', v)}
+                      calendarValue={calendarSettings.lendingCalendar}
+                      onCalendarChange={v => updateCalendar('lendingCalendar', v)}
+                      calendarConnected={!!calendarToken}
+                    />
+                  </div>
+
                   <div className="mt-4 pt-4 border-t border-[var(--border)]">
-                    {thresholdsDirty ? (
-                      <Button
-                        onClick={handleSaveThresholds}
-                        disabled={saveMutation.isPending}
-                        className="w-full"
-                      >
+                    {settingsDirty ? (
+                      <Button onClick={handleSaveSettings} disabled={saveMutation.isPending} className="w-full">
                         {saveMutation.isPending ? 'Saving…' : 'Save Changes'}
                       </Button>
                     ) : (
@@ -234,24 +357,9 @@ export default function SettingsPage() {
               </Card>
             </section>
 
-            {/* Push Notifications */}
-            <section>
-              <p className="section-label mb-3 px-1">Push Notifications</p>
-              <Card>
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-xs text-[var(--text-2)] mb-3 leading-relaxed">
-                    Receive alerts for due payments, expiring contracts, and more — even when the app is closed.
-                  </p>
-                  <Button variant="secondary" onClick={handleEnableNotifications} className="w-full">
-                    Enable Push Notifications
-                  </Button>
-                </CardContent>
-              </Card>
-            </section>
-
           </div>
 
-          {/* Sign Out — spans full width at the very bottom on both layouts */}
+          {/* Sign Out */}
           <section className="md:col-span-2">
             <Card>
               <CardContent className="pt-0 pb-0">
@@ -273,21 +381,42 @@ export default function SettingsPage() {
   )
 }
 
-/* ── Threshold Row ────────────────────────────────────────────────────────── */
+/* ── Alert & Calendar Row ─────────────────────────────────────────────────── */
 
-function ThresholdRow({ label, unit, value, onChange }) {
+function AlertCalendarRow({ label, unit, thresholdValue, onThresholdChange, calendarValue, onCalendarChange, calendarConnected }) {
   return (
-    <div className="flex items-center justify-between py-3 gap-4">
-      <span className="text-sm text-[var(--text-1)] flex-1 min-w-0 truncate">{label}</span>
-      <div className="flex items-center gap-2 shrink-0">
-        <input
-          type="number"
-          min="1"
-          value={value ?? ''}
-          onChange={e => onChange(e.target.value)}
-          className="w-16 h-9 rounded-[var(--radius-md)] px-2.5 text-sm font-semibold text-center bg-[var(--surface-2)] text-[var(--text-1)] border border-[var(--border)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)] focus:ring-opacity-15 outline-none transition-all"
-        />
-        <span className="text-xs text-[var(--text-3)] w-11">{unit}</span>
+    <div className="py-3 space-y-2">
+      {/* Top: label + threshold input */}
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-sm font-medium text-[var(--text-1)] flex-1 min-w-0 truncate">{label}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <input
+            type="number"
+            min="1"
+            value={thresholdValue ?? ''}
+            onChange={e => onThresholdChange(e.target.value)}
+            className="w-16 h-9 rounded-[var(--radius-md)] px-2.5 text-sm font-semibold text-center bg-[var(--surface-2)] text-[var(--text-1)] border border-[var(--border)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)] focus:ring-opacity-15 outline-none transition-all"
+          />
+          <span className="text-xs text-[var(--text-3)] w-11">{unit}</span>
+        </div>
+      </div>
+
+      {/* Bottom: calendar reminder picker */}
+      <div className="flex items-center gap-2">
+        <CalendarDays size={12} className={calendarConnected ? 'text-[var(--accent-text)] shrink-0' : 'text-[var(--text-3)] shrink-0'} />
+        <select
+          value={calendarValue}
+          onChange={e => onCalendarChange(e.target.value)}
+          disabled={!calendarConnected}
+          className="flex-1 h-8 rounded-[var(--radius-md)] px-2 text-xs font-medium bg-[var(--surface-2)] text-[var(--text-2)] border border-[var(--border)] focus:border-[var(--accent)] outline-none transition-all disabled:opacity-40 disabled:cursor-not-allowed appearance-none cursor-pointer"
+        >
+          {CALENDAR_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        {!calendarConnected && (
+          <span className="text-[10px] text-[var(--text-3)] shrink-0">Connect first</span>
+        )}
       </div>
     </div>
   )
@@ -302,7 +431,6 @@ function BudgetTemplateSection() {
   const { template, saveTemplateMutation } = useBudget()
   const { accounts: allAccounts } = useBankAccounts()
   const { activeCurrency } = useApp()
-  // Template is per-currency now; only offer same-currency accounts to link.
   const accounts = allAccounts.filter(a => normCurrency(a.currency) === activeCurrency)
   const items = template?.items || []
 
