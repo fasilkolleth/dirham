@@ -9,15 +9,15 @@ import BorrowingPage from './Borrowing'
 import { cn } from '@/utils/cn'
 
 const TABS = [
-  { id: 'emi', label: 'EMI Tracker' },
   { id: 'bank', label: 'Bank Balances' },
+  { id: 'emi', label: 'EMI Tracker' },
   { id: 'lending', label: 'Lending' },
   { id: 'borrowing', label: 'Borrowing' },
 ]
 
 export default function TrackersPage() {
   const location = useLocation()
-  const initialTab = TABS.some(t => t.id === location.state?.tab) ? location.state.tab : 'emi'
+  const initialTab = TABS.some(t => t.id === location.state?.tab) ? location.state.tab : 'bank'
   const [tab, setTab] = useState(initialTab)
 
   return (
