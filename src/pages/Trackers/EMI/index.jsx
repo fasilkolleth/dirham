@@ -10,6 +10,8 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { FAB } from '@/components/shared/FAB'
 import { useEMI } from '@/hooks/useEMI'
 import { useApp } from '@/context/AppContext'
+import { useCalendarSync } from '@/hooks/useCalendarSync'
+import { updateEMI } from '@/services/firestore'
 import { formatCurrency } from '@/utils/currencyFormatter'
 import { normCurrency, CURRENCIES } from '@/utils/currencies'
 import { formatDate, toDateInput } from '@/utils/dateHelpers'
@@ -27,6 +29,7 @@ export default function EMIPage() {
 
   const { emis: allEmis, isLoading, addMutation, updateMutation, deleteMutation } = useEMI()
   const { activeCurrency } = useApp()
+  const calSync = useCalendarSync()
   const emis = allEmis.filter(e => normCurrency(e.currency) === activeCurrency)
   const totalMonthlyEMI = emis.filter(e => e.status !== 'closed').reduce((s, e) => s + (e.monthlyAmount || 0), 0)
 
@@ -47,8 +50,25 @@ export default function EMIPage() {
         totalAmount: Number(form.totalAmount) || 0,
         currency: normCurrency(form.currency || activeCurrency),
       }
-      if (editId) await updateMutation.mutateAsync({ id: editId, data })
-      else await addMutation.mutateAsync(data)
+      let docId = editId
+      if (editId) {
+        await updateMutation.mutateAsync({ id: editId, data })
+      } else {
+        const docRef = await addMutation.mutateAsync(data)
+        docId = docRef.id
+      }
+
+      // Sync calendar event for EMI end date
+      const existing = editId ? allEmis.find(e => e.id === editId)?.calendarEventId : null
+      const eventId = await calSync.sync({
+        type: 'emi',
+        title: `${data.purpose} EMI ending`,
+        description: `${formatCurrency(data.monthlyAmount, data.currency)}/month — ${data.lender}`,
+        dueDate: data.endDate,
+        existingEventId: existing,
+      })
+      if (eventId !== undefined) await updateEMI(docId, { calendarEventId: eventId ?? null })
+
       setShowForm(false)
       toast.success(editId ? 'EMI updated' : 'EMI added')
     } catch (err) { console.error(err); toast.error('Failed to save') }
@@ -57,6 +77,8 @@ export default function EMIPage() {
 
   const handleDelete = async () => {
     try {
+      const emi = allEmis.find(e => e.id === deleteId)
+      await calSync.remove(emi?.calendarEventId)
       await deleteMutation.mutateAsync(deleteId)
       setDeleteId(null)
       toast.success('EMI removed')

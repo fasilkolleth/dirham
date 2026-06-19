@@ -36,6 +36,7 @@ export function useLending() {
           reason: `Lent to ${data.borrowerName || 'someone'}`, sourceType: 'lending', sourceId: docRef.id,
         })
       }
+      return docRef
     },
     onSuccess: refresh,
   })

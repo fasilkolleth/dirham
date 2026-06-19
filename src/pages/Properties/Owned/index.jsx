@@ -16,6 +16,8 @@ import { FAB } from '@/components/shared/FAB'
 import { useOwnedProperties, useOwnedCheques, useMaintenanceFees, useTenantHistory } from '@/hooks/useProperties'
 import { useBankAccounts } from '@/hooks/useBankAccounts'
 import { useApp } from '@/context/AppContext'
+import { useCalendarSync } from '@/hooks/useCalendarSync'
+import { updateOwnedProperty, updateOwnedCheque } from '@/services/firestore'
 import { reconcileChequePosting, reverseChequePosting } from '@/utils/chequePosting'
 import { formatCurrency } from '@/utils/currencyFormatter'
 import { normCurrency, CURRENCIES } from '@/utils/currencies'
@@ -48,6 +50,7 @@ export default function OwnedPropertyPage() {
 
   const { properties: allProperties, isLoading, addMutation, updateMutation, deleteMutation } = useOwnedProperties()
   const { activeCurrency } = useApp()
+  const calSync = useCalendarSync()
   const properties = allProperties.filter(p => normCurrency(p.currency) === activeCurrency)
 
   const openAddProp = () => { setPropForm({ ...BLANK_PROP, currency: activeCurrency }); setEditPropId(null); setShowLoan(false); setShowPropForm(true) }
@@ -69,8 +72,25 @@ export default function OwnedPropertyPage() {
     setSaving(true)
     try {
       const data = { ...propForm, annualRent: Number(propForm.annualRent) || 0, numberOfCheques: Number(propForm.numberOfCheques) || 0, loanEMI: Number(propForm.loanEMI) || 0, loanBalance: Number(propForm.loanBalance) || 0, currency: normCurrency(propForm.currency || activeCurrency) }
-      if (editPropId) await updateMutation.mutateAsync({ id: editPropId, data })
-      else await addMutation.mutateAsync(data)
+      let propId = editPropId
+      if (editPropId) {
+        await updateMutation.mutateAsync({ id: editPropId, data })
+      } else {
+        const docRef = await addMutation.mutateAsync(data)
+        propId = docRef.id
+      }
+
+      // Sync contract expiry to calendar
+      const existing = editPropId ? allProperties.find(p => p.id === editPropId)?.calendarEventId : null
+      const eventId = await calSync.sync({
+        type: 'ownedContract',
+        title: `Contract expiry — ${data.buildingName}`,
+        description: data.tenantName ? `Tenant: ${data.tenantName}` : '',
+        dueDate: data.contractEndDate,
+        existingEventId: existing,
+      })
+      if (eventId !== undefined) await updateOwnedProperty(propId, { calendarEventId: eventId ?? null })
+
       setShowPropForm(false)
       toast.success(editPropId ? 'Property updated' : 'Property added')
     } catch (err) { console.error(err); toast.error('Failed to save') }
@@ -314,7 +334,7 @@ function PropertyCard({ prop, onEdit, onDelete, updateMutation }) {
           </button>
         </div>
 
-        {showCheques && <ChequeSection propId={prop.id} currency={cur} />}
+        {showCheques && <ChequeSection propId={prop.id} currency={cur} buildingName={prop.buildingName} />}
         {showMaintenance && <MaintenanceFeeSection propId={prop.id} currency={cur} />}
       </div>
 
@@ -522,12 +542,13 @@ function TenantHistoryRow({ tenant, propId, currency, updateMutation, deleteMuta
   )
 }
 
-function ChequeSection({ propId, currency }) {
+function ChequeSection({ propId, currency, buildingName }) {
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState(BLANK_CHEQUE)
   const { cheques, addMutation, updateMutation, deleteMutation } = useOwnedCheques(propId)
   const { accounts: allAccounts } = useBankAccounts()
+  const calSync = useCalendarSync()
   const accounts = allAccounts.filter(a => normCurrency(a.currency) === currency)
   const qc = useQueryClient()
   const refreshBank = () => qc.invalidateQueries({ queryKey: ['bank_accounts'] })
@@ -542,15 +563,35 @@ function ChequeSection({ propId, currency }) {
     const next = { ...form, amount: Number(form.amount) || 0 }
     const label = `Rent cheque #${next.chequeNumber || ''}`.trim()
     try {
+      let chequeId = editId
       if (editId) {
         const prev = cheques.find(c => c.id === editId)
         const posted = await reconcileChequePosting({ prev, next, incoming: true, sourceId: editId, label })
         await updateMutation.mutateAsync({ id: editId, data: { ...next, ...posted } })
       } else {
         const docRef = await addMutation.mutateAsync({ ...next, postedAmount: 0, postedAccountId: '' })
+        chequeId = docRef.id
         const posted = await reconcileChequePosting({ prev: null, next, incoming: true, sourceId: docRef.id, label })
         if (posted.postedAmount) await updateMutation.mutateAsync({ id: docRef.id, data: posted })
       }
+
+      // Sync to calendar — skip if cheque is already cleared or bounced
+      const isFinished = next.status === 'cleared' || next.status === 'bounced'
+      const existing = editId ? cheques.find(c => c.id === editId)?.calendarEventId : null
+      if (isFinished) {
+        await calSync.remove(existing)
+        await updateOwnedCheque(propId, chequeId, { calendarEventId: null })
+      } else {
+        const eventId = await calSync.sync({
+          type: 'cheque',
+          title: `Cheque due — ${buildingName} #${next.chequeNumber}`,
+          description: formatCurrency(next.amount, currency),
+          dueDate: next.dueDate,
+          existingEventId: existing,
+        })
+        if (eventId !== undefined) await updateOwnedCheque(propId, chequeId, { calendarEventId: eventId ?? null })
+      }
+
       refreshBank()
       setShowForm(false); setEditId(null); toast.success('Saved')
     } catch (err) { console.error(err); toast.error('Failed to save') }
@@ -558,6 +599,7 @@ function ChequeSection({ propId, currency }) {
 
   const handleDelete = async (c) => {
     try {
+      await calSync.remove(c.calendarEventId)
       await reverseChequePosting({ cheque: c, incoming: true, sourceId: c.id, label: `Rent cheque #${c.chequeNumber || ''}`.trim() })
       await deleteMutation.mutateAsync(c.id)
       refreshBank()

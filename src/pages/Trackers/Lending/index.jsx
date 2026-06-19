@@ -10,6 +10,8 @@ import { FAB } from '@/components/shared/FAB'
 import { useLending, useRepayments } from '@/hooks/useLending'
 import { useBankAccounts } from '@/hooks/useBankAccounts'
 import { useApp } from '@/context/AppContext'
+import { useCalendarSync } from '@/hooks/useCalendarSync'
+import { updateLending } from '@/services/firestore'
 import { formatCurrency } from '@/utils/currencyFormatter'
 import { normCurrency, CURRENCIES } from '@/utils/currencies'
 import { formatDate, toDateInput } from '@/utils/dateHelpers'
@@ -31,6 +33,7 @@ export default function LendingPage() {
   const { lendings: allLendings, isLoading, addMutation, updateMutation, deleteMutation } = useLending()
   const { accounts: allAccounts } = useBankAccounts()
   const { activeCurrency } = useApp()
+  const calSync = useCalendarSync()
   const lendings = allLendings.filter(l => normCurrency(l.currency) === activeCurrency)
   const accounts = allAccounts.filter(a => normCurrency(a.currency) === activeCurrency)
   const totalLentOut = lendings.filter(l => l.status !== 'settled').reduce((s, l) => s + (l.balanceRemaining || 0), 0)
@@ -47,8 +50,24 @@ export default function LendingPage() {
     setSaving(true)
     try {
       const data = { ...form, amountLent: Number(form.amountLent) || 0, currency: normCurrency(form.currency || activeCurrency) }
-      if (editId) await updateMutation.mutateAsync({ id: editId, data, prev: lendings.find(l => l.id === editId) })
-      else await addMutation.mutateAsync(data)
+      let docId = editId
+      if (editId) {
+        await updateMutation.mutateAsync({ id: editId, data, prev: lendings.find(l => l.id === editId) })
+      } else {
+        const docRef = await addMutation.mutateAsync(data)
+        docId = docRef.id
+      }
+
+      const existing = editId ? allLendings.find(l => l.id === editId)?.calendarEventId : null
+      const eventId = await calSync.sync({
+        type: 'lending',
+        title: `Repayment due — ${data.borrowerName}`,
+        description: `${formatCurrency(data.amountLent, data.currency)} lent`,
+        dueDate: data.agreedDueDate,
+        existingEventId: existing,
+      })
+      if (eventId !== undefined) await updateLending(docId, { calendarEventId: eventId ?? null })
+
       setShowForm(false)
       toast.success(editId ? 'Updated' : 'Lending added')
     } catch (err) { console.error(err); toast.error('Failed') }
@@ -57,7 +76,9 @@ export default function LendingPage() {
 
   const handleDelete = async () => {
     try {
-      await deleteMutation.mutateAsync(lendings.find(l => l.id === deleteId) || { id: deleteId })
+      const lending = allLendings.find(l => l.id === deleteId)
+      await calSync.remove(lending?.calendarEventId)
+      await deleteMutation.mutateAsync(lending || { id: deleteId })
       setDeleteId(null)
       toast.success('Removed')
     } catch (err) { console.error(err); toast.error('Failed') }
