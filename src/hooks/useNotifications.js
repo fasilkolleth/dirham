@@ -1,27 +1,14 @@
 import { useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { getDoc, doc } from 'firebase/firestore'
-import { db } from '@/services/firebase'
 import { useAlerts } from './useAlerts'
 
-// Triggers browser notifications for high-severity alerts once per day,
-// but only if the GitHub Actions push hasn't already run today.
+// Triggers a single grouped browser notification for high/medium alerts once per day.
 export function useNotifications() {
   const { alerts } = useAlerts()
-
-  const { data: pushConfig } = useQuery({
-    queryKey: ['push-config'],
-    queryFn: () => getDoc(doc(db, 'config', 'push')).then(d => d.exists() ? d.data() : {}),
-    staleTime: 5 * 60 * 1000,
-  })
 
   useEffect(() => {
     if (!('Notification' in window)) return
     if (Notification.permission !== 'granted') return
     if (!alerts.length) return
-
-    // Skip if the server-side push already notified today
-    if (pushConfig?.lastNotifiedDate === new Date().toDateString()) return
 
     const today = new Date().toDateString()
     const storageKey = `notified_${today}`
@@ -34,6 +21,8 @@ export function useNotifications() {
 
     if (!pending.length) return
 
+    // Mark as notified immediately so closing the app before the timer fires
+    // doesn't cause them to re-appear on the next open.
     localStorage.setItem(storageKey, JSON.stringify([
       ...alreadyNotified,
       ...pending.map(a => a.id),
@@ -58,5 +47,5 @@ export function useNotifications() {
     }, 2000)
 
     return () => clearTimeout(timer)
-  }, [alerts, pushConfig])
+  }, [alerts])
 }
