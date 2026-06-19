@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Sun, Moon, LogOut, Plus, Trash2, Pencil, Landmark, CalendarDays, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Sun, Moon, LogOut, Plus, Trash2, Pencil, Landmark, CalendarDays, CheckCircle2, AlertCircle, ChevronDown } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Header } from '@/components/layout/Header'
 import { Card, CardContent } from '@/components/ui/Card'
@@ -15,6 +15,14 @@ import { useBankAccounts } from '@/hooks/useBankAccounts'
 import { formatCurrency } from '@/utils/currencyFormatter'
 import { normCurrency, currencyMeta } from '@/utils/currencies'
 import toast from 'react-hot-toast'
+
+function formatTime(time24) {
+  if (!time24) return '9:00 AM'
+  const [h, m] = time24.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+}
 
 const CALENDAR_OPTIONS = [
   { value: 'off',           label: 'Off' },
@@ -287,18 +295,24 @@ export default function SettingsPage() {
               <Card>
                 <CardContent className="pt-2 pb-5">
 
-                  {/* Reminder time — applies to all calendar events, UAE time */}
-                  <div className="flex items-center justify-between py-3 mb-1 border-b border-[var(--border)]">
+                  {/* Reminder time */}
+                  <div className="flex items-center justify-between h-14 border-b border-[var(--border)]">
                     <div>
-                      <span className="text-sm font-medium text-[var(--text-1)]">Reminder time</span>
-                      <p className="text-[11px] text-[var(--text-3)] mt-0.5">UAE time · applies to all categories</p>
+                      <p className="text-sm font-medium text-[var(--text-1)]">Reminder time</p>
+                      <p className="text-[11px] text-[var(--text-3)] mt-0.5">UAE time · applies to all</p>
                     </div>
-                    <input
-                      type="time"
-                      value={calendarSettings.calendarReminderTime}
-                      onChange={e => { setCalendarSettings(prev => ({ ...prev, calendarReminderTime: e.target.value })); setSettingsDirty(true) }}
-                      className="h-9 rounded-[var(--radius-md)] px-2.5 text-sm font-semibold bg-[var(--surface-2)] text-[var(--text-1)] border border-[var(--border)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)] focus:ring-opacity-15 outline-none transition-all"
-                    />
+                    <label className="relative cursor-pointer flex items-center gap-1.5">
+                      <span className="text-sm font-semibold text-[var(--accent-text)]">
+                        {formatTime(calendarSettings.calendarReminderTime)}
+                      </span>
+                      <ChevronDown size={13} className="text-[var(--accent-text)]" />
+                      <input
+                        type="time"
+                        value={calendarSettings.calendarReminderTime}
+                        onChange={e => { setCalendarSettings(prev => ({ ...prev, calendarReminderTime: e.target.value })); setSettingsDirty(true) }}
+                        className="absolute inset-0 opacity-0 w-full cursor-pointer"
+                      />
+                    </label>
                   </div>
 
                   <div className="divide-y divide-[var(--border)]">
@@ -401,38 +415,51 @@ export default function SettingsPage() {
 /* ── Alert & Calendar Row ─────────────────────────────────────────────────── */
 
 function AlertCalendarRow({ label, unit, thresholdValue, onThresholdChange, calendarValue, onCalendarChange, calendarConnected }) {
+  const isActive = calendarConnected && calendarValue !== 'off'
+
   return (
-    <div className="py-3 space-y-2">
-      {/* Top: label + threshold input */}
-      <div className="flex items-center justify-between gap-4">
-        <span className="text-sm font-medium text-[var(--text-1)] flex-1 min-w-0 truncate">{label}</span>
-        <div className="flex items-center gap-2 shrink-0">
+    <div className="py-3.5">
+      {/* Label + threshold */}
+      <div className="flex items-center justify-between gap-3 mb-2.5">
+        <span className="text-sm font-medium text-[var(--text-1)] flex-1 min-w-0">{label}</span>
+        <div className="flex items-center gap-1.5 shrink-0">
           <input
             type="number"
             min="1"
             value={thresholdValue ?? ''}
             onChange={e => onThresholdChange(e.target.value)}
-            className="w-16 h-9 rounded-[var(--radius-md)] px-2.5 text-sm font-semibold text-center bg-[var(--surface-2)] text-[var(--text-1)] border border-[var(--border)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)] focus:ring-opacity-15 outline-none transition-all"
+            className="w-14 h-8 rounded-[var(--radius-md)] px-2 text-sm font-bold text-center bg-[var(--surface-2)] text-[var(--text-1)] border border-[var(--border)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)] focus:ring-opacity-15 outline-none transition-all"
           />
-          <span className="text-xs text-[var(--text-3)] w-11">{unit}</span>
+          <span className="text-xs text-[var(--text-3)] w-10 shrink-0">{unit}</span>
         </div>
       </div>
 
-      {/* Bottom: calendar reminder picker */}
-      <div className="flex items-center gap-2">
-        <CalendarDays size={12} className={calendarConnected ? 'text-[var(--accent-text)] shrink-0' : 'text-[var(--text-3)] shrink-0'} />
-        <select
-          value={calendarValue}
-          onChange={e => onCalendarChange(e.target.value)}
-          disabled={!calendarConnected}
-          className="flex-1 h-8 rounded-[var(--radius-md)] px-2 text-xs font-medium bg-[var(--surface-2)] text-[var(--text-2)] border border-[var(--border)] focus:border-[var(--accent)] outline-none transition-all disabled:opacity-40 disabled:cursor-not-allowed appearance-none cursor-pointer"
-        >
-          {CALENDAR_OPTIONS.map(o => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+      {/* Calendar pill selector */}
+      <div className="relative">
+        <div className={`flex items-center gap-2 h-8 pl-2.5 pr-2 rounded-[var(--radius-full)] border transition-all ${
+          !calendarConnected
+            ? 'bg-[var(--surface-2)] border-[var(--border)] opacity-50'
+            : isActive
+              ? 'bg-[var(--accent-light)] border-[var(--accent)]'
+              : 'bg-[var(--surface-2)] border-[var(--border)]'
+        }`}>
+          <CalendarDays size={12} className={`shrink-0 ${isActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-3)]'}`} />
+          <select
+            value={calendarValue}
+            onChange={e => onCalendarChange(e.target.value)}
+            disabled={!calendarConnected}
+            className={`flex-1 text-xs font-semibold bg-transparent outline-none appearance-none cursor-pointer disabled:cursor-not-allowed ${
+              isActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-3)]'
+            }`}
+          >
+            {CALENDAR_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <ChevronDown size={11} className={`shrink-0 ${isActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-3)]'}`} />
+        </div>
         {!calendarConnected && (
-          <span className="text-[10px] text-[var(--text-3)] shrink-0">Connect first</span>
+          <p className="text-[10px] text-[var(--text-3)] mt-1 pl-1">Connect Google Calendar above to enable</p>
         )}
       </div>
     </div>
