@@ -16,7 +16,7 @@ const CALENDAR_SETTING_DEFAULTS = {
 // Days to use for the early reminder based on the category type
 function getEarlyDays(type, settings) {
   const map = {
-    emi:            (settings.emiWarningMonths    || 3)  * 30,
+    emi:             settings.emiWarningDays    || 90,
     cheque:          settings.chequeWarningDays   || 7,
     ownedContract:   settings.ownedContractWarningDays  || 60,
     rentedContract:  settings.rentedContractWarningDays || 60,

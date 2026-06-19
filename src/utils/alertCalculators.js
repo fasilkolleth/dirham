@@ -1,23 +1,26 @@
-import { daysUntil, monthsRemaining } from './dateHelpers.js'
+import { daysUntil } from './dateHelpers.js'
 import { formatCurrency } from './currencyFormatter.js'
 
-export const calcEMIAlerts = (emis = [], warningMonths = 3) => {
+export const calcEMIAlerts = (emis = [], warningDays = 90) => {
   return emis
     .filter(emi => emi.status !== 'closed')
     .map(emi => {
-      const months = monthsRemaining(emi.endDate)
-      // months >= 0 catches EMIs ending THIS calendar month (months = 0 but not yet past end date)
-      if (months <= warningMonths && months >= 0) {
-        const desc = months === 0
-          ? `Ending this month — ${emi.lender}`
-          : `${months} month${months !== 1 ? 's' : ''} remaining — ${emi.lender}`
+      const days = daysUntil(emi.endDate)
+      if (days !== null && days <= warningDays && days >= 0) {
+        let desc
+        if (days === 0) desc = `Ending today — ${emi.lender}`
+        else if (days < 30) desc = `${days} day${days !== 1 ? 's' : ''} remaining — ${emi.lender}`
+        else {
+          const months = Math.round(days / 30)
+          desc = `${months} month${months !== 1 ? 's' : ''} remaining — ${emi.lender}`
+        }
         return {
           type: 'emi',
           id: emi.id,
           title: `${emi.purpose} EMI ending soon`,
           description: desc,
-          severity: months <= 1 ? 'high' : 'medium',
-          tone: 'positive', // a loan finishing is good news
+          severity: days <= 30 ? 'high' : 'medium',
+          tone: 'positive',
           dueDate: emi.endDate,
         }
       }
@@ -134,7 +137,7 @@ export const calcLendingAlerts = (lendings = [], warningDays = 7) => {
 
 export const getAllAlerts = ({ emis, ownedProperties, rentedProperties, lending, settings }) => {
   const {
-    emiWarningMonths = 3,
+    emiWarningDays = 90,
     emiDueWarningDays = 5,
     chequeWarningDays = 7,
     ownedContractWarningDays = 60,
@@ -143,7 +146,7 @@ export const getAllAlerts = ({ emis, ownedProperties, rentedProperties, lending,
   } = settings || {}
 
   return [
-    ...calcEMIAlerts(emis, emiWarningMonths),
+    ...calcEMIAlerts(emis, emiWarningDays),
     ...calcEmiDueAlerts(emis, emiDueWarningDays),
     ...calcChequeAlerts(ownedProperties || [], chequeWarningDays, 'positive'), // rent coming in
     ...calcChequeAlerts(rentedProperties || [], chequeWarningDays),            // a payment you owe

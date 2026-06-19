@@ -56,7 +56,7 @@ export default function SettingsPage() {
 
   // ── Alert thresholds + calendar settings ────────────────────────────────────
   const [thresholds, setThresholds] = useState({
-    emiWarningMonths:          settings.emiWarningMonths,
+    emiWarningDays:            settings.emiWarningDays,
     emiDueWarningDays:         settings.emiDueWarningDays,
     chequeWarningDays:         settings.chequeWarningDays,
     ownedContractWarningDays:  settings.ownedContractWarningDays,
@@ -76,7 +76,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setThresholds({
-      emiWarningMonths:          settings.emiWarningMonths,
+      emiWarningDays:            settings.emiWarningDays,
       emiDueWarningDays:         settings.emiDueWarningDays,
       chequeWarningDays:         settings.chequeWarningDays,
       ownedContractWarningDays:  settings.ownedContractWarningDays,
@@ -106,7 +106,7 @@ export default function SettingsPage() {
 
   const handleSaveSettings = async () => {
     await saveMutation.mutateAsync({
-      emiWarningMonths:          Math.max(1, Number(thresholds.emiWarningMonths) || 3),
+      emiWarningDays:            Math.max(1, Number(thresholds.emiWarningDays) || 90),
       emiDueWarningDays:         Math.max(1, Number(thresholds.emiDueWarningDays) || 5),
       chequeWarningDays:         Math.max(1, Number(thresholds.chequeWarningDays) || 7),
       ownedContractWarningDays:  Math.max(1, Number(thresholds.ownedContractWarningDays) || 60),
@@ -318,9 +318,9 @@ export default function SettingsPage() {
                   <div className="divide-y divide-[var(--border)]">
                     <AlertCalendarRow
                       label="EMI ending"
-                      unit="months"
-                      thresholdValue={thresholds.emiWarningMonths}
-                      onThresholdChange={v => updateThreshold('emiWarningMonths', v)}
+                      unit="days"
+                      thresholdValue={thresholds.emiWarningDays}
+                      onThresholdChange={v => updateThreshold('emiWarningDays', v)}
                       calendarValue={calendarSettings.emiCalendar}
                       onCalendarChange={v => updateCalendar('emiCalendar', v)}
                       calendarConnected={!!calendarToken}

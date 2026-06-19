@@ -8,7 +8,7 @@ export const DEFAULT_SETTINGS = {
   theme: 'light',
   currency: 'AED',
   preferredName: '',
-  emiWarningMonths: 3,
+  emiWarningDays: 90,
   emiDueWarningDays: 5,
   chequeWarningDays: 7,
   ownedContractWarningDays: 60,
