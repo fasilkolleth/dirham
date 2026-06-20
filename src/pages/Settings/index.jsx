@@ -20,7 +20,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/services/firebase'
 import {
-  updateEMI, updateLending,
+  updateEMI, updateLending, updateBorrowing,
   updateOwnedProperty, updateOwnedCheque,
   updateRentedProperty, updateRentedCheque,
 } from '@/services/firestore'
@@ -73,6 +73,7 @@ export default function SettingsPage() {
     ownedContractWarningDays:  settings.ownedContractWarningDays,
     rentedContractWarningDays: settings.rentedContractWarningDays,
     lendingWarningDays:        settings.lendingWarningDays,
+    borrowingWarningDays:      settings.borrowingWarningDays,
   })
   const [calendarSettings, setCalendarSettings] = useState({
     emiCalendar:            settings.emiCalendar            ?? CALENDAR_DEFAULTS.emiCalendar,
@@ -81,6 +82,7 @@ export default function SettingsPage() {
     ownedContractCalendar:  settings.ownedContractCalendar  ?? CALENDAR_DEFAULTS.ownedContractCalendar,
     rentedContractCalendar: settings.rentedContractCalendar ?? CALENDAR_DEFAULTS.rentedContractCalendar,
     lendingCalendar:        settings.lendingCalendar        ?? CALENDAR_DEFAULTS.lendingCalendar,
+    borrowingCalendar:      settings.borrowingCalendar      ?? 'due_date',
     calendarReminderTime:   settings.calendarReminderTime   ?? '09:00',
   })
   const [settingsDirty, setSettingsDirty] = useState(false)
@@ -93,6 +95,7 @@ export default function SettingsPage() {
       ownedContractWarningDays:  settings.ownedContractWarningDays,
       rentedContractWarningDays: settings.rentedContractWarningDays,
       lendingWarningDays:        settings.lendingWarningDays,
+      borrowingWarningDays:      settings.borrowingWarningDays,
     })
     setCalendarSettings({
       emiCalendar:            settings.emiCalendar            ?? CALENDAR_DEFAULTS.emiCalendar,
@@ -101,6 +104,7 @@ export default function SettingsPage() {
       ownedContractCalendar:  settings.ownedContractCalendar  ?? CALENDAR_DEFAULTS.ownedContractCalendar,
       rentedContractCalendar: settings.rentedContractCalendar ?? CALENDAR_DEFAULTS.rentedContractCalendar,
       lendingCalendar:        settings.lendingCalendar        ?? CALENDAR_DEFAULTS.lendingCalendar,
+      borrowingCalendar:      settings.borrowingCalendar      ?? 'due_date',
       calendarReminderTime:   settings.calendarReminderTime   ?? '09:00',
     })
     setSettingsDirty(false)
@@ -123,6 +127,7 @@ export default function SettingsPage() {
       ownedContractWarningDays:  Math.max(1, Number(thresholds.ownedContractWarningDays) || 60),
       rentedContractWarningDays: Math.max(1, Number(thresholds.rentedContractWarningDays) || 60),
       lendingWarningDays:        Math.max(1, Number(thresholds.lendingWarningDays) || 7),
+      borrowingWarningDays:      Math.max(1, Number(thresholds.borrowingWarningDays) || 7),
       ...calendarSettings,
     })
     setSettingsDirty(false)
@@ -146,17 +151,19 @@ export default function SettingsPage() {
     let count = 0
     try {
       // Fetch all records in parallel
-      const [emisSnap, ownedSnap, rentedSnap, lendingsSnap] = await Promise.all([
+      const [emisSnap, ownedSnap, rentedSnap, lendingsSnap, borrowingsSnap] = await Promise.all([
         getDocs(collection(db, 'emi_tracker')),
         getDocs(collection(db, 'property_owned')),
         getDocs(collection(db, 'property_rented')),
         getDocs(collection(db, 'lending')),
+        getDocs(collection(db, 'borrowing')),
       ])
 
       const emis        = emisSnap.docs.map(d => ({ id: d.id, ...d.data() }))
       const ownedProps  = ownedSnap.docs.map(d => ({ id: d.id, ...d.data() }))
       const rentedProps = rentedSnap.docs.map(d => ({ id: d.id, ...d.data() }))
       const lendings    = lendingsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const borrowings  = borrowingsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
 
       // Fetch cheques for every property
       const ownedWithCheques = await Promise.all(ownedProps.map(async p => {
@@ -242,6 +249,18 @@ export default function SettingsPage() {
           })
           if (eventId) { await updateRentedCheque(p.id, c.id, { calendarEventId: eventId }); count++ }
         }
+      }
+
+      // ── Borrowing ────────────────────────────────────────────────────────────
+      for (const b of borrowings) {
+        if (b.calendarEventId || b.status === 'settled' || !b.agreedDueDate) continue
+        const eventId = await calSync.sync({
+          type: 'borrowing',
+          title: `Repayment due to ${b.lenderName}`,
+          description: `${formatCurrency(b.amountBorrowed, b.currency)} borrowed`,
+          dueDate: b.agreedDueDate,
+        })
+        if (eventId) { await updateBorrowing(b.id, { calendarEventId: eventId }); count++ }
       }
 
       if (count === 0) toast.success('All records already synced — nothing new to add.')
@@ -516,6 +535,15 @@ export default function SettingsPage() {
                       onThresholdChange={v => updateThreshold('lendingWarningDays', v)}
                       calendarValue={calendarSettings.lendingCalendar}
                       onCalendarChange={v => updateCalendar('lendingCalendar', v)}
+                      calendarConnected={!!calendarToken}
+                    />
+                    <AlertCalendarRow
+                      label="Borrowing repayment"
+                      unit="days"
+                      thresholdValue={thresholds.borrowingWarningDays}
+                      onThresholdChange={v => updateThreshold('borrowingWarningDays', v)}
+                      calendarValue={calendarSettings.borrowingCalendar}
+                      onCalendarChange={v => updateCalendar('borrowingCalendar', v)}
                       calendarConnected={!!calendarToken}
                     />
                   </div>

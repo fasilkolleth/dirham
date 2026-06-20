@@ -11,6 +11,7 @@ const CALENDAR_SETTING_DEFAULTS = {
   ownedContractCalendar:  'early_and_due',
   rentedContractCalendar: 'early_and_due',
   lendingCalendar:        'due_date',
+  borrowingCalendar:      'due_date',
 }
 
 // Days to use for the early reminder based on the category type
@@ -20,7 +21,8 @@ function getEarlyDays(type, settings) {
     cheque:          settings.chequeWarningDays   || 7,
     ownedContract:   settings.ownedContractWarningDays  || 60,
     rentedContract:  settings.rentedContractWarningDays || 60,
-    lending:         settings.lendingWarningDays  || 7,
+    lending:         settings.lendingWarningDays   || 7,
+    borrowing:       settings.borrowingWarningDays || 7,
   }
   return map[type] || 0
 }

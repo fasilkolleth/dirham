@@ -10,6 +10,8 @@ import { FAB } from '@/components/shared/FAB'
 import { useBorrowing, useBorrowRepayments } from '@/hooks/useBorrowing'
 import { useBankAccounts } from '@/hooks/useBankAccounts'
 import { useApp } from '@/context/AppContext'
+import { useCalendarSync } from '@/hooks/useCalendarSync'
+import { updateBorrowing } from '@/services/firestore'
 import { formatCurrency } from '@/utils/currencyFormatter'
 import { normCurrency, CURRENCIES } from '@/utils/currencies'
 import { formatDate, toDateInput } from '@/utils/dateHelpers'
@@ -31,6 +33,7 @@ export default function BorrowingPage() {
   const { borrowings: allBorrowings, isLoading, addMutation, updateMutation, deleteMutation } = useBorrowing()
   const { accounts: allAccounts } = useBankAccounts()
   const { activeCurrency } = useApp()
+  const calSync = useCalendarSync()
   const borrowings = allBorrowings.filter(b => normCurrency(b.currency) === activeCurrency)
   const accounts = allAccounts.filter(a => normCurrency(a.currency) === activeCurrency)
   const totalOwed = borrowings.filter(b => b.status !== 'settled').reduce((s, b) => s + (b.balanceRemaining || 0), 0)
@@ -47,8 +50,24 @@ export default function BorrowingPage() {
     setSaving(true)
     try {
       const data = { ...form, amountBorrowed: Number(form.amountBorrowed) || 0, currency: normCurrency(form.currency || activeCurrency) }
-      if (editId) await updateMutation.mutateAsync({ id: editId, data, prev: borrowings.find(b => b.id === editId) })
-      else await addMutation.mutateAsync(data)
+      let docId = editId
+      if (editId) {
+        await updateMutation.mutateAsync({ id: editId, data, prev: borrowings.find(b => b.id === editId) })
+      } else {
+        const docRef = await addMutation.mutateAsync(data)
+        docId = docRef.id
+      }
+
+      const existing = editId ? allBorrowings.find(b => b.id === editId)?.calendarEventId : null
+      const eventId = await calSync.sync({
+        type: 'borrowing',
+        title: `Repayment due to ${data.lenderName}`,
+        description: `${formatCurrency(data.amountBorrowed, data.currency)} borrowed`,
+        dueDate: data.agreedDueDate,
+        existingEventId: existing,
+      })
+      if (eventId !== undefined) await updateBorrowing(docId, { calendarEventId: eventId ?? null })
+
       setShowForm(false)
       toast.success(editId ? 'Updated' : 'Borrowing added')
     } catch (err) { console.error(err); toast.error('Failed') }
@@ -57,7 +76,9 @@ export default function BorrowingPage() {
 
   const handleDelete = async () => {
     try {
-      await deleteMutation.mutateAsync(borrowings.find(b => b.id === deleteId) || { id: deleteId })
+      const borrowing = allBorrowings.find(b => b.id === deleteId)
+      await calSync.remove(borrowing?.calendarEventId)
+      await deleteMutation.mutateAsync(borrowing || { id: deleteId })
       setDeleteId(null)
       toast.success('Removed')
     } catch (err) { console.error(err); toast.error('Failed') }
