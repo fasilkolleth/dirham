@@ -19,6 +19,8 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
+      refetchInterval: 60_000,        // re-fetch every 60s while page is open
+      refetchIntervalInBackground: false, // pause polling when app is backgrounded
     },
   },
 })
