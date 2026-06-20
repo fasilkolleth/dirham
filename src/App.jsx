@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
@@ -52,6 +52,7 @@ function AppRoutes() {
 
 function UpdateBanner() {
   const [visible, setVisible] = useState(false)
+  const regRef = useRef(null)  // store registration synchronously so handleUpdate needs no async
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
@@ -61,6 +62,7 @@ function UpdateBanner() {
     }
 
     navigator.serviceWorker.ready.then(reg => {
+      regRef.current = reg  // store once, reuse synchronously on click
       showIfWaiting(reg)
 
       reg.addEventListener('updatefound', () => {
@@ -78,13 +80,10 @@ function UpdateBanner() {
   }, [])
 
   const handleUpdate = () => {
-    navigator.serviceWorker.ready
-      .then(reg => { if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' }) })
-      .catch(() => {})
-      .finally(() => {
-        // Short delay lets the SW activate before we reload
-        setTimeout(() => window.location.reload(), 400)
-      })
+    // Use the already-resolved registration — no async call, no iOS delay
+    const reg = regRef.current
+    if (reg?.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' })
+    setTimeout(() => window.location.reload(), 400)
   }
 
   if (!visible) return null

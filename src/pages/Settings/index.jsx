@@ -582,7 +582,7 @@ export default function SettingsPage() {
             </Card>
           </section>
 
-          <p className="md:col-span-2 text-xs text-[var(--text-3)] text-center pb-4">Dirham v1.4</p>
+          <p className="md:col-span-2 text-xs text-[var(--text-3)] text-center pb-4">Dirham v1.5</p>
         </div>
       </div>
     </Layout>
