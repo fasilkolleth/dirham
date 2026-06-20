@@ -6,6 +6,13 @@ import { initializeApp } from 'firebase/app'
 import { getMessaging, onBackgroundMessage } from 'firebase/messaging/sw'
 import { readCachedAlerts, getNotifiedIds, markNotifiedIds } from './utils/alertCache'
 
+// ── Auto-update: activate new SW as soon as it's installed ──────────────────
+// VitePWA's registerSW sends SKIP_WAITING when a new version is ready.
+// Without this handler the new SW stays in 'waiting' forever.
+self.addEventListener('message', event => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+})
+
 // ── Workbox precaching ───────────────────────────────────────────────────────
 precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()

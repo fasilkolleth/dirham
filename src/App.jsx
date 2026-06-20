@@ -1,4 +1,5 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { useRegisterSW } from 'virtual:pwa-register/react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
@@ -50,12 +51,53 @@ function AppRoutes() {
   )
 }
 
+function UpdateBanner() {
+  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW()
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => { if (needRefresh) setVisible(true) }, [needRefresh])
+
+  if (!visible) return null
+
+  return (
+    <div
+      style={{
+        position: 'fixed', bottom: '80px', left: '16px', right: '16px',
+        zIndex: 9999, background: 'linear-gradient(135deg, #0062FF 0%, #0EA5E9 100%)',
+        borderRadius: '14px', padding: '14px 16px',
+        boxShadow: '0 8px 24px rgba(0,98,255,0.35)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+      }}
+    >
+      <div>
+        <p style={{ color: '#fff', fontWeight: 600, fontSize: '14px', margin: 0 }}>Update available</p>
+        <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px', margin: '2px 0 0' }}>Tap to get the latest version</p>
+      </div>
+      <div style={{ display: 'flex', gap: '8px', shrink: 0 }}>
+        <button
+          onClick={() => setVisible(false)}
+          style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', padding: '6px' }}
+        >
+          Later
+        </button>
+        <button
+          onClick={() => updateServiceWorker(true)}
+          style={{ background: '#fff', color: '#0062FF', fontSize: '13px', fontWeight: 700, border: 'none', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer' }}
+        >
+          Update
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <AppProvider>
           <BrowserRouter>
+            <UpdateBanner />
             <AppRoutes />
             <Toaster
               position="top-center"
