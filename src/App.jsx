@@ -1,6 +1,6 @@
-import { lazy, Suspense, useEffect, useState, useRef } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { AppProvider } from '@/context/AppContext'
@@ -23,12 +23,79 @@ const queryClient = new QueryClient({
   },
 })
 
+// ── Refresh data when app comes back to foreground ────────────────────────────
+// Handles the case where data is updated on another device (e.g. laptop)
+// and the mobile app is showing stale cached data.
+function VisibilityRefresh() {
+  const qc = useQueryClient()
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        qc.invalidateQueries()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [qc])
+  return null
+}
+
+// ── PWA update banner ─────────────────────────────────────────────────────────
+// On iOS, waiting SWs can't be activated programmatically via postMessage.
+// The only reliable update path is close + reopen, so we tell the user that.
+function UpdateBanner() {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+
+    const showIfWaiting = (reg) => {
+      if (reg.waiting && navigator.serviceWorker.controller) setVisible(true)
+    }
+
+    navigator.serviceWorker.ready.then(reg => {
+      showIfWaiting(reg)
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing
+        if (!sw) return
+        sw.addEventListener('statechange', () => {
+          if (sw.state === 'installed') showIfWaiting(reg)
+        })
+      })
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update().catch(() => {})
+      })
+    })
+  }, [])
+
+  if (!visible) return null
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: '80px', left: '16px', right: '16px', zIndex: 9999,
+      background: 'linear-gradient(135deg, #0062FF 0%, #0EA5E9 100%)',
+      borderRadius: '14px', padding: '14px 16px',
+      boxShadow: '0 8px 24px rgba(0,98,255,0.35)',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+    }}>
+      <div>
+        <p style={{ color: '#fff', fontWeight: 600, fontSize: '14px', margin: 0 }}>Update available</p>
+        <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px', margin: '2px 0 0' }}>Close and reopen the app to update</p>
+      </div>
+      <button
+        onClick={() => setVisible(false)}
+        style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', fontWeight: 600, background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '8px', cursor: 'pointer', padding: '6px 14px', flexShrink: 0 }}>
+        Dismiss
+      </button>
+    </div>
+  )
+}
+
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <PageLoader />
   if (!user) return <Navigate to="/login" replace />
   return <>{children}</>
-
 }
 
 function AppRoutes() {
@@ -50,85 +117,13 @@ function AppRoutes() {
   )
 }
 
-function UpdateBanner() {
-  const [visible, setVisible] = useState(false)
-  const regRef = useRef(null)  // store registration synchronously so handleUpdate needs no async
-
-  useEffect(() => {
-    if (!('serviceWorker' in navigator)) return
-
-    const showIfWaiting = (reg) => {
-      if (reg.waiting && navigator.serviceWorker.controller) setVisible(true)
-    }
-
-    navigator.serviceWorker.ready.then(reg => {
-      regRef.current = reg  // store once, reuse synchronously on click
-      showIfWaiting(reg)
-
-      reg.addEventListener('updatefound', () => {
-        const sw = reg.installing
-        if (!sw) return
-        sw.addEventListener('statechange', () => {
-          if (sw.state === 'installed') showIfWaiting(reg)
-        })
-      })
-
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') reg.update().catch(() => {})
-      })
-    })
-  }, [])
-
-  const handleUpdate = () => {
-    const reg = regRef.current
-    let reloaded = false
-    const doReload = () => { if (!reloaded) { reloaded = true; window.location.reload() } }
-
-    if (reg?.waiting) {
-      // Reload as soon as the new SW takes control of the page
-      navigator.serviceWorker.addEventListener('controllerchange', doReload, { once: true })
-      reg.waiting.postMessage({ type: 'SKIP_WAITING' })
-      // Fallback: if controllerchange doesn't fire within 3s, reload anyway
-      setTimeout(doReload, 3000)
-    } else {
-      doReload()
-    }
-  }
-
-  if (!visible) return null
-
-  return (
-    <div style={{
-      position: 'fixed', bottom: '80px', left: '16px', right: '16px', zIndex: 9999,
-      background: 'linear-gradient(135deg, #0062FF 0%, #0EA5E9 100%)',
-      borderRadius: '14px', padding: '14px 16px',
-      boxShadow: '0 8px 24px rgba(0,98,255,0.35)',
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
-    }}>
-      <div>
-        <p style={{ color: '#fff', fontWeight: 600, fontSize: '14px', margin: 0 }}>Update available</p>
-        <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px', margin: '2px 0 0' }}>Tap to get the latest version</p>
-      </div>
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <button onClick={() => setVisible(false)}
-          style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', padding: '6px 10px' }}>
-          Later
-        </button>
-        <button onClick={handleUpdate}
-          style={{ background: '#fff', color: '#0062FF', fontSize: '13px', fontWeight: 700, border: 'none', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer' }}>
-          Update
-        </button>
-      </div>
-    </div>
-  )
-}
-
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <AppProvider>
           <BrowserRouter>
+            <VisibilityRefresh />
             <UpdateBanner />
             <AppRoutes />
             <Toaster
