@@ -80,10 +80,19 @@ function UpdateBanner() {
   }, [])
 
   const handleUpdate = () => {
-    // Use the already-resolved registration — no async call, no iOS delay
     const reg = regRef.current
-    if (reg?.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' })
-    setTimeout(() => window.location.reload(), 400)
+    let reloaded = false
+    const doReload = () => { if (!reloaded) { reloaded = true; window.location.reload() } }
+
+    if (reg?.waiting) {
+      // Reload as soon as the new SW takes control of the page
+      navigator.serviceWorker.addEventListener('controllerchange', doReload, { once: true })
+      reg.waiting.postMessage({ type: 'SKIP_WAITING' })
+      // Fallback: if controllerchange doesn't fire within 3s, reload anyway
+      setTimeout(doReload, 3000)
+    } else {
+      doReload()
+    }
   }
 
   if (!visible) return null
