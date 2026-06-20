@@ -10,10 +10,20 @@ import { CategoryIcon } from '@/components/shared/CategoryIcon'
 import { useSettings } from '@/hooks/useSettings'
 import { useAuth } from '@/context/AuthContext'
 import { useApp } from '@/context/AppContext'
+import { useCalendarSync } from '@/hooks/useCalendarSync'
 import { useBudget } from '@/hooks/useBudget'
 import { useBankAccounts } from '@/hooks/useBankAccounts'
 import { formatCurrency } from '@/utils/currencyFormatter'
 import { normCurrency, currencyMeta } from '@/utils/currencies'
+import {
+  getDocs, collection, doc,
+} from 'firebase/firestore'
+import { db } from '@/services/firebase'
+import {
+  updateEMI, updateLending,
+  updateOwnedProperty, updateOwnedCheque,
+  updateRentedProperty, updateRentedCheque,
+} from '@/services/firestore'
 import toast from 'react-hot-toast'
 
 function formatTime(time24) {
@@ -43,6 +53,7 @@ export default function SettingsPage() {
   const { user, logout, calendarToken, connectGoogleCalendar } = useAuth()
   const { theme, toggleTheme, activeCurrency } = useApp()
   const { settings, saveMutation } = useSettings()
+  const calSync = useCalendarSync()
 
   // ── Preferred name ──────────────────────────────────────────────────────────
   const [preferredName, setPreferredName] = useState(settings.preferredName || '')
@@ -120,12 +131,127 @@ export default function SettingsPage() {
 
   // ── Google Calendar connect ──────────────────────────────────────────────────
   const [connecting, setConnecting] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+
   const handleConnectCalendar = async () => {
     setConnecting(true)
     const ok = await connectGoogleCalendar()
     setConnecting(false)
     if (ok) toast.success('Google Calendar connected!')
     else toast.error('Could not connect Google Calendar.')
+  }
+
+  const handleSyncAll = async () => {
+    setSyncing(true)
+    let count = 0
+    try {
+      // Fetch all records in parallel
+      const [emisSnap, ownedSnap, rentedSnap, lendingsSnap] = await Promise.all([
+        getDocs(collection(db, 'emi_tracker')),
+        getDocs(collection(db, 'property_owned')),
+        getDocs(collection(db, 'property_rented')),
+        getDocs(collection(db, 'lending')),
+      ])
+
+      const emis        = emisSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const ownedProps  = ownedSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const rentedProps = rentedSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const lendings    = lendingsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+      // Fetch cheques for every property
+      const ownedWithCheques = await Promise.all(ownedProps.map(async p => {
+        const s = await getDocs(collection(db, 'property_owned', p.id, 'cheques'))
+        return { ...p, cheques: s.docs.map(d => ({ id: d.id, ...d.data() })) }
+      }))
+      const rentedWithCheques = await Promise.all(rentedProps.map(async p => {
+        const s = await getDocs(collection(db, 'property_rented', p.id, 'cheques'))
+        return { ...p, cheques: s.docs.map(d => ({ id: d.id, ...d.data() })) }
+      }))
+
+      // ── EMIs ────────────────────────────────────────────────────────────────
+      for (const emi of emis) {
+        if (emi.calendarEventId || emi.status === 'closed' || !emi.endDate) continue
+        const eventId = await calSync.sync({
+          type: 'emi',
+          title: `${emi.purpose} EMI ending`,
+          description: `${formatCurrency(emi.monthlyAmount, emi.currency)}/month — ${emi.lender}`,
+          dueDate: emi.endDate,
+        })
+        if (eventId) { await updateEMI(emi.id, { calendarEventId: eventId }); count++ }
+      }
+
+      // ── Lending ─────────────────────────────────────────────────────────────
+      for (const l of lendings) {
+        if (l.calendarEventId || l.status === 'settled' || !l.agreedDueDate) continue
+        const eventId = await calSync.sync({
+          type: 'lending',
+          title: `Repayment due — ${l.borrowerName}`,
+          description: `${formatCurrency(l.amountLent, l.currency)} lent`,
+          dueDate: l.agreedDueDate,
+        })
+        if (eventId) { await updateLending(l.id, { calendarEventId: eventId }); count++ }
+      }
+
+      // ── Owned property contracts ─────────────────────────────────────────────
+      for (const p of ownedProps) {
+        if (p.calendarEventId || !p.contractEndDate) continue
+        const eventId = await calSync.sync({
+          type: 'ownedContract',
+          title: `Contract expiry — ${p.buildingName}`,
+          description: p.tenantName ? `Tenant: ${p.tenantName}` : '',
+          dueDate: p.contractEndDate,
+        })
+        if (eventId) { await updateOwnedProperty(p.id, { calendarEventId: eventId }); count++ }
+      }
+
+      // ── Rented property contracts ────────────────────────────────────────────
+      for (const p of rentedProps) {
+        if (p.calendarEventId || !p.contractEndDate) continue
+        const eventId = await calSync.sync({
+          type: 'rentedContract',
+          title: `Rental contract expiry — ${p.buildingName}`,
+          description: p.landlordName ? `Landlord: ${p.landlordName}` : '',
+          dueDate: p.contractEndDate,
+        })
+        if (eventId) { await updateRentedProperty(p.id, { calendarEventId: eventId }); count++ }
+      }
+
+      // ── Owned cheques ────────────────────────────────────────────────────────
+      for (const p of ownedWithCheques) {
+        for (const c of p.cheques) {
+          if (c.calendarEventId || c.status === 'cleared' || c.status === 'bounced' || !c.dueDate) continue
+          const eventId = await calSync.sync({
+            type: 'cheque',
+            title: `Cheque due — ${p.buildingName} #${c.chequeNumber}`,
+            description: formatCurrency(c.amount, p.currency),
+            dueDate: c.dueDate,
+          })
+          if (eventId) { await updateOwnedCheque(p.id, c.id, { calendarEventId: eventId }); count++ }
+        }
+      }
+
+      // ── Rented cheques ───────────────────────────────────────────────────────
+      for (const p of rentedWithCheques) {
+        for (const c of p.cheques) {
+          if (c.calendarEventId || c.status === 'cleared' || c.status === 'bounced' || !c.dueDate) continue
+          const eventId = await calSync.sync({
+            type: 'cheque',
+            title: `Rent cheque due — ${p.buildingName} #${c.chequeNumber}`,
+            description: formatCurrency(c.amount, p.currency),
+            dueDate: c.dueDate,
+          })
+          if (eventId) { await updateRentedCheque(p.id, c.id, { calendarEventId: eventId }); count++ }
+        }
+      }
+
+      if (count === 0) toast.success('All records already synced — nothing new to add.')
+      else toast.success(`${count} record${count !== 1 ? 's' : ''} synced to Google Calendar.`)
+    } catch (err) {
+      console.error(err)
+      toast.error('Sync failed. Check your Calendar connection and try again.')
+    } finally {
+      setSyncing(false)
+    }
   }
 
   return (
@@ -276,6 +402,28 @@ export default function SettingsPage() {
                       {connecting ? 'Connecting…' : calendarToken ? 'Reconnect' : 'Connect'}
                     </Button>
                   </div>
+
+                  {calendarToken && (
+                    <div className="mt-3 pt-3 border-t border-[var(--border)]">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[var(--text-1)]">Sync existing records</p>
+                          <p className="text-[11px] text-[var(--text-3)] mt-0.5 leading-relaxed">
+                            Create calendar events for all EMIs, cheques, contracts and lending records that were added before you connected Google Calendar.
+                          </p>
+                        </div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleSyncAll}
+                          disabled={syncing}
+                          className="shrink-0 mt-0.5"
+                        >
+                          {syncing ? 'Syncing…' : 'Sync All'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
 
                   {!calendarToken && (
                     <p className="text-[11px] text-[var(--text-3)] mt-3 pt-3 border-t border-[var(--border)] leading-relaxed">
