@@ -11,6 +11,7 @@ import { useSettings } from '@/hooks/useSettings'
 import { useAuth } from '@/context/AuthContext'
 import { useApp } from '@/context/AppContext'
 import { useCalendarSync } from '@/hooks/useCalendarSync'
+import { MAX_EARLY_REMINDER_DAYS } from '@/services/googleCalendar'
 import { useBudget } from '@/hooks/useBudget'
 import { useBankAccounts } from '@/hooks/useBankAccounts'
 import { formatCurrency } from '@/utils/currencyFormatter'
@@ -592,6 +593,7 @@ export default function SettingsPage() {
 
 function AlertCalendarRow({ label, unit, thresholdValue, onThresholdChange, calendarValue, onCalendarChange, calendarConnected }) {
   const isActive = calendarConnected && calendarValue !== 'off'
+  const earlyExceedsLimit = unit === 'days' && calendarValue === 'early_and_due' && Number(thresholdValue) > MAX_EARLY_REMINDER_DAYS
 
   return (
     <div className="py-3.5">
@@ -636,6 +638,11 @@ function AlertCalendarRow({ label, unit, thresholdValue, onThresholdChange, cale
         </div>
         {!calendarConnected && (
           <p className="text-[10px] text-[var(--text-3)] mt-1 pl-1">Connect Google Calendar above to enable</p>
+        )}
+        {earlyExceedsLimit && (
+          <p className="text-[10px] text-[var(--warning)] mt-1 pl-1">
+            Google Calendar caps early reminders at {MAX_EARLY_REMINDER_DAYS} days — early alert will fire {MAX_EARLY_REMINDER_DAYS} days before
+          </p>
         )}
       </div>
     </div>

@@ -1,6 +1,10 @@
 const BASE_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
 const TIME_ZONE = 'Asia/Dubai' // UAE — Gulf Standard Time (UTC+4)
 
+// Google Calendar API hard-caps popup reminders at 40,320 minutes (28 days).
+// Values above this are silently clamped by Google.
+export const MAX_EARLY_REMINDER_DAYS = 28
+
 // Timed events give reliable push notifications on iPhone.
 // All-day events with popup reminders are unreliable across calendar clients.
 function buildEventBody(title, description, dueDate, earlyReminderDays, reminderTime = '09:00') {
@@ -12,7 +16,8 @@ function buildEventBody(title, description, dueDate, earlyReminderDays, reminder
     { method: 'popup', minutes: 0 },
   ]
   if (earlyReminderDays > 0) {
-    overrides.push({ method: 'popup', minutes: earlyReminderDays * 24 * 60 })
+    const clamped = Math.min(earlyReminderDays, MAX_EARLY_REMINDER_DAYS)
+    overrides.push({ method: 'popup', minutes: clamped * 24 * 60 })
   }
 
   return {
