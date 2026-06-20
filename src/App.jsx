@@ -56,30 +56,21 @@ function UpdateBanner() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
 
-    // Reload the page when the new SW takes control
-    let reloading = false
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!reloading) { reloading = true; window.location.reload() }
-    })
-
-    const checkWaiting = (reg) => {
-      if (reg.waiting && navigator.serviceWorker.controller) {
-        setVisible(true)
-      }
-    }
-
-    const watchInstalling = (reg) => {
-      const sw = reg.installing
-      if (!sw) return
-      sw.addEventListener('statechange', () => {
-        if (sw.state === 'installed') checkWaiting(reg)
-      })
+    const showIfWaiting = (reg) => {
+      if (reg.waiting && navigator.serviceWorker.controller) setVisible(true)
     }
 
     navigator.serviceWorker.ready.then(reg => {
-      checkWaiting(reg)
-      reg.addEventListener('updatefound', () => watchInstalling(reg))
-      // Re-check for updates each time the app comes to the foreground
+      showIfWaiting(reg)
+
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing
+        if (!sw) return
+        sw.addEventListener('statechange', () => {
+          if (sw.state === 'installed') showIfWaiting(reg)
+        })
+      })
+
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') reg.update().catch(() => {})
       })
@@ -87,11 +78,13 @@ function UpdateBanner() {
   }, [])
 
   const handleUpdate = () => {
-    navigator.serviceWorker.ready.then(reg => {
-      // Always read reg.waiting fresh — avoids stale state reference
-      if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' })
-      else window.location.reload()
-    })
+    navigator.serviceWorker.ready
+      .then(reg => { if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' }) })
+      .catch(() => {})
+      .finally(() => {
+        // Short delay lets the SW activate before we reload
+        setTimeout(() => window.location.reload(), 400)
+      })
   }
 
   if (!visible) return null
