@@ -1,23 +1,22 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listTransfers, addTransfer, deleteTransfer, adjustAccountBalance } from '@/services/firestore'
+import { useState, useEffect } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
+import { db } from '@/services/firebase'
+import { addTransfer, deleteTransfer, adjustAccountBalance } from '@/services/firestore'
 
 export function useTransfers() {
-  const qc = useQueryClient()
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ['transfers'] })
-    qc.invalidateQueries({ queryKey: ['bank_accounts'] })
-  }
+  const [transfers, setTransfers] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  const { data: transfers = [], isLoading } = useQuery({
-    queryKey: ['transfers'],
-    queryFn: async () => {
-      const snap = await listTransfers()
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }))
-    },
-    staleTime: 30_000,
-  })
+  useEffect(() => {
+    const q = query(collection(db, 'transfers'), orderBy('createdAt', 'desc'))
+    const unsub = onSnapshot(q, snap => {
+      setTransfers(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setIsLoading(false)
+    }, err => { console.error('transfers listener:', err); setIsLoading(false) })
+    return unsub
+  }, [])
 
-  // One event, two postings: debit the source, credit the destination. Net zero.
   const addMutation = useMutation({
     mutationFn: async (data) => {
       const amount = Number(data.amount) || 0
@@ -37,10 +36,8 @@ export function useTransfers() {
         reason: `Transfer from ${data.fromName || 'account'}`, sourceType: 'transfer', sourceId: docRef.id,
       })
     },
-    onSuccess: refresh,
   })
 
-  // Deleting a transfer cleanly reverses both postings.
   const deleteMutation = useMutation({
     mutationFn: async (transfer) => {
       const amount = Number(transfer.amount) || 0
@@ -52,7 +49,6 @@ export function useTransfers() {
       })
       await deleteTransfer(transfer.id)
     },
-    onSuccess: refresh,
   })
 
   return { transfers, isLoading, addMutation, deleteMutation }
