@@ -52,46 +52,46 @@ function AppRoutes() {
 
 function UpdateBanner() {
   const [visible, setVisible] = useState(false)
-  const [worker, setWorker] = useState(null)
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
 
-    const onUpdateFound = (reg) => {
-      const sw = reg.installing || reg.waiting
+    // Reload the page when the new SW takes control
+    let reloading = false
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!reloading) { reloading = true; window.location.reload() }
+    })
+
+    const checkWaiting = (reg) => {
+      if (reg.waiting && navigator.serviceWorker.controller) {
+        setVisible(true)
+      }
+    }
+
+    const watchInstalling = (reg) => {
+      const sw = reg.installing
       if (!sw) return
       sw.addEventListener('statechange', () => {
-        // A new SW installed and a previous one is controlling the page
-        if (sw.state === 'installed' && navigator.serviceWorker.controller) {
-          setWorker(sw)
-          setVisible(true)
-        }
+        if (sw.state === 'installed') checkWaiting(reg)
       })
     }
 
     navigator.serviceWorker.ready.then(reg => {
-      // Already a waiting worker (e.g. page was reloaded after SW installed)
-      if (reg.waiting && navigator.serviceWorker.controller) {
-        setWorker(reg.waiting)
-        setVisible(true)
-      }
-      reg.addEventListener('updatefound', () => onUpdateFound(reg))
-    })
-
-    // Check for updates when the page becomes visible again
-    const checkUpdate = () => navigator.serviceWorker.ready.then(reg => reg.update())
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') checkUpdate()
+      checkWaiting(reg)
+      reg.addEventListener('updatefound', () => watchInstalling(reg))
+      // Re-check for updates each time the app comes to the foreground
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update().catch(() => {})
+      })
     })
   }, [])
 
   const handleUpdate = () => {
-    if (worker) {
-      worker.postMessage({ type: 'SKIP_WAITING' })
-      navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload())
-    } else {
-      window.location.reload()
-    }
+    navigator.serviceWorker.ready.then(reg => {
+      // Always read reg.waiting fresh — avoids stale state reference
+      if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' })
+      else window.location.reload()
+    })
   }
 
   if (!visible) return null
@@ -110,7 +110,7 @@ function UpdateBanner() {
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
         <button onClick={() => setVisible(false)}
-          style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', padding: '6px' }}>
+          style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', padding: '6px 10px' }}>
           Later
         </button>
         <button onClick={handleUpdate}
