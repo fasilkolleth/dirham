@@ -1,6 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
+import { db } from '@/services/firebase'
 import {
-  listBorrowing, addBorrowing, updateBorrowing, deleteBorrowing,
+  addBorrowing, updateBorrowing, deleteBorrowing,
   listBorrowRepayments, addBorrowRepayment, deleteBorrowRepayment, adjustAccountBalance,
 } from '@/services/firestore'
 
@@ -12,22 +15,21 @@ const enrichBorrowing = (borrowing) => {
 }
 
 export function useBorrowing() {
-  const qc = useQueryClient()
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ['borrowing'] })
-    qc.invalidateQueries({ queryKey: ['bank_accounts'] })
-  }
+  const [borrowings, setBorrowings] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  const { data: borrowings = [], isLoading } = useQuery({
-    queryKey: ['borrowing'],
-    queryFn: async () => {
-      const snap = await listBorrowing()
-      return snap.docs.map(d => enrichBorrowing({ id: d.id, ...d.data() }))
-    },
-    staleTime: 30_000,
-  })
+  useEffect(() => {
+    const q = query(collection(db, 'borrowing'), orderBy('createdAt', 'desc'))
+    const unsub = onSnapshot(q, snap => {
+      setBorrowings(snap.docs.map(d => enrichBorrowing({ id: d.id, ...d.data() })))
+      setIsLoading(false)
+    }, err => {
+      console.error('borrowing listener:', err)
+      setIsLoading(false)
+    })
+    return unsub
+  }, [])
 
-  // Money lands in the chosen account the moment you borrow it.
   const addMutation = useMutation({
     mutationFn: async (data) => {
       const docRef = await addBorrowing(data)
@@ -38,10 +40,8 @@ export function useBorrowing() {
       }
       return docRef
     },
-    onSuccess: refresh,
   })
 
-  // Reconcile the account when the amount or the linked account changes.
   const updateMutation = useMutation({
     mutationFn: async ({ id, data, prev }) => {
       await updateBorrowing(id, data)
@@ -49,7 +49,6 @@ export function useBorrowing() {
       const newAcc = data.accountId || '', newAmt = Number(data.amountBorrowed) || 0
       if (oldAcc === newAcc) {
         if (oldAcc && oldAmt !== newAmt) {
-          // was credited +oldAmt; should be +newAmt → post the difference
           await adjustAccountBalance(newAcc, newAmt - oldAmt, { reason: 'Borrowing updated', sourceType: 'borrowing', sourceId: id })
         }
       } else {
@@ -57,11 +56,8 @@ export function useBorrowing() {
         if (newAcc && newAmt) await adjustAccountBalance(newAcc, newAmt, { reason: 'Borrowing re-linked', sourceType: 'borrowing', sourceId: id })
       }
     },
-    onSuccess: refresh,
   })
 
-  // Deleting reverses every posting: the principal credited on its account, and
-  // each repayment debited from the account it was actually paid from.
   const deleteMutation = useMutation({
     mutationFn: async (borrowing) => {
       if (borrowing?.accountId && Number(borrowing.amountBorrowed)) {
@@ -80,7 +76,6 @@ export function useBorrowing() {
       }
       await deleteBorrowing(borrowing.id)
     },
-    onSuccess: refresh,
   })
 
   const totalOwed = borrowings
@@ -91,16 +86,18 @@ export function useBorrowing() {
 }
 
 export function useBorrowRepayments(borrowingId) {
-  const qc = useQueryClient()
+  const [repayments, setRepayments] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  const { data: repayments = [], isLoading } = useQuery({
-    queryKey: ['borrow_repayments', borrowingId],
-    queryFn: async () => {
-      const snap = await listBorrowRepayments(borrowingId)
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }))
-    },
-    enabled: !!borrowingId,
-  })
+  useEffect(() => {
+    if (!borrowingId) { setIsLoading(false); return }
+    const q = query(collection(db, 'borrowing', borrowingId, 'repayments'), orderBy('date', 'desc'))
+    const unsub = onSnapshot(q, snap => {
+      setRepayments(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setIsLoading(false)
+    }, err => { console.error('borrow_repayments listener:', err); setIsLoading(false) })
+    return unsub
+  }, [borrowingId])
 
   const recomputeTotal = async () => {
     const snap = await listBorrowRepayments(borrowingId)
@@ -108,7 +105,6 @@ export function useBorrowRepayments(borrowingId) {
     await updateBorrowing(borrowingId, { totalRepaid })
   }
 
-  // A repayment you make goes OUT — debits the chosen account.
   const addMutation = useMutation({
     mutationFn: async (data) => {
       await addBorrowRepayment(borrowingId, data)
@@ -118,10 +114,7 @@ export function useBorrowRepayments(borrowingId) {
           reason: 'Loan repayment paid', sourceType: 'borrow_repayment', sourceId: borrowingId,
         })
       }
-      qc.invalidateQueries({ queryKey: ['borrowing'] })
-      qc.invalidateQueries({ queryKey: ['bank_accounts'] })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['borrow_repayments', borrowingId] }),
   })
 
   const deleteMutation = useMutation({
@@ -134,10 +127,7 @@ export function useBorrowRepayments(borrowingId) {
           reason: 'Loan repayment reversed', sourceType: 'borrow_repayment', sourceId: borrowingId,
         })
       }
-      qc.invalidateQueries({ queryKey: ['borrowing'] })
-      qc.invalidateQueries({ queryKey: ['bank_accounts'] })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['borrow_repayments', borrowingId] }),
   })
 
   return { repayments, isLoading, addMutation, deleteMutation }

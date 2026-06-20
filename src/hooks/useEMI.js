@@ -1,5 +1,8 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listEMIs, addEMI, updateEMI, deleteEMI } from '@/services/firestore'
+import { useState, useEffect } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
+import { db } from '@/services/firebase'
+import { addEMI, updateEMI, deleteEMI } from '@/services/firestore'
 import { monthsRemaining, monthsElapsed, daysUntil } from '@/utils/dateHelpers'
 
 const enrichEMI = (emi) => {
@@ -10,8 +13,6 @@ const enrichEMI = (emi) => {
   const totalPaid = elapsed * monthlyAmt
   const totalAmt = emi.totalAmount || 0
   const amountRemaining = Math.max(0, totalAmt - totalPaid)
-  // 'closed' only when the end date has actually passed (negative days),
-  // NOT when < 1 calendar month remains — that was hiding urgent near-end EMIs
   const status = (daysLeft === null || daysLeft < 0) ? 'closed'
     : remaining <= 3 ? 'ending_soon'
     : 'active'
@@ -19,32 +20,24 @@ const enrichEMI = (emi) => {
 }
 
 export function useEMI() {
-  const qc = useQueryClient()
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['emis'] })
+  const [emis, setEmis] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  const { data: emis = [], isLoading } = useQuery({
-    queryKey: ['emis'],
-    queryFn: async () => {
-      const snap = await listEMIs()
-      return snap.docs.map(d => enrichEMI({ id: d.id, ...d.data() }))
-    },
-    staleTime: 30_000,
-  })
+  useEffect(() => {
+    const q = query(collection(db, 'emi_tracker'), orderBy('createdAt', 'desc'))
+    const unsub = onSnapshot(q, snap => {
+      setEmis(snap.docs.map(d => enrichEMI({ id: d.id, ...d.data() })))
+      setIsLoading(false)
+    }, err => {
+      console.error('emi_tracker listener:', err)
+      setIsLoading(false)
+    })
+    return unsub
+  }, [])
 
-  const addMutation = useMutation({
-    mutationFn: addEMI,
-    onSuccess: invalidate,
-  })
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => updateEMI(id, data),
-    onSuccess: invalidate,
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteEMI,
-    onSuccess: invalidate,
-  })
+  const addMutation = useMutation({ mutationFn: addEMI })
+  const updateMutation = useMutation({ mutationFn: ({ id, data }) => updateEMI(id, data) })
+  const deleteMutation = useMutation({ mutationFn: deleteEMI })
 
   const activeEMIs = emis.filter(e => e.status !== 'closed')
   const totalMonthlyEMI = activeEMIs.reduce((s, e) => s + (e.monthlyAmount || 0), 0)
